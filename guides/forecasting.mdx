@@ -1,0 +1,99 @@
+---
+title: "Predict Stock Shortages with the Tevet-7 ML Forecast Tool"
+sidebarTitle: "Forecasting"
+description: "Ask the Tevet-7 agent which products risk running out of stock, powered by a RandomForest model with 0.98 ROC-AUC and automatic SQL fallback."
+---
+
+The Tevet-7 Forecast Tool uses a trained machine-learning model to predict which of your products are likely to run out of stock in the next 7 days. You ask the question in plain language — "Which products might run out of stock this week?" — and the agent routes it to the Forecast Tool automatically, returning a ranked list of at-risk products with probabilities, a bar chart, and plain-language explanations of the dominant risk factors.
+
+## How to trigger a forecast
+
+You do not call a separate endpoint. Just send a forecast question to the standard chat endpoint:
+
+```json
+{
+  "message": "Which of my products risk running out of stock this week?"
+}
+```
+
+The agent classifies the intent and invokes the Forecast Tool when it detects stock-shortage language. Questions in English or French both work:
+
+- "Which products might run out of stock this week?"
+- "Quels produits risquent une rupture de stock dans les 7 prochains jours ?"
+- "Do I have any low-stock risks I should act on today?"
+
+## Model metrics
+
+The forecast model is a RandomForest classifier (100 trees) trained on 90 days of daily stock history across all products and producers in your tenant.
+
+| Metric | Value |
+|---|---|
+| Accuracy | 0.90 |
+| F1 | 0.83 |
+| Recall | **0.96** |
+| ROC-AUC | 0.98 |
+| Training rows | 6 279 |
+| Top features | `stock_available`, `days_since_last_stockout`, `sales_7d` |
+
+<Info>
+  Recall is intentionally prioritised over precision. A false alarm — alerting you to a shortage that doesn't materialise — costs only a quick shelf check. A missed shortage costs a full day of lost sales. The model is calibrated to minimise missed alerts even at the cost of occasional false positives.
+</Info>
+
+## Forecast response
+
+When a forecast is triggered, the chat response includes two additional fields alongside the standard `answer`.
+
+### `forecast_predictions`
+
+An array of at-risk products ordered by `shortage_probability` (highest first), each with:
+
+<ResponseField name="product_name" type="string">
+  The display name of the product.
+</ResponseField>
+
+<ResponseField name="shortage_probability" type="number">
+  The model's predicted probability (0–1) that this product will experience a stockout in the next 7 days.
+</ResponseField>
+
+<ResponseField name="days_until_shortage" type="number">
+  The estimated number of days until the product runs out based on current stock and recent sales velocity.
+</ResponseField>
+
+### `chart`
+
+A bar chart spec showing shortage probability per product, ordered from highest to lowest risk. Render it directly in your UI with the `type`, `labels`, and `data` fields.
+
+## Example
+
+```json
+// Request
+{
+  "message": "Which of my products risk running out of stock this week?"
+}
+
+// Response (excerpt)
+{
+  "answer": "3 products show a high risk of stock shortage in the next 7 days:\n\n1. **Tomates anciennes** — 94% risk\n   Current stock: 8 units · Sales last 7 days: 62 · Main factor: high sales volume\n2. **Miel toutes fleurs** — 87% risk\n   Current stock: 12 units · Sales last 7 days: 44 · Main factor: low stock\n3. **Courgettes** — 71% risk\n   Current stock: 22 units · Sales last 7 days: 98 · Main factor: seasonal peak\n\nThe RandomForest model (100 trees) was trained on 6 279 rows of stock history.",
+  "forecast_predictions": [
+    { "product_name": "Tomates anciennes",  "shortage_probability": 0.94, "days_until_shortage": 1 },
+    { "product_name": "Miel toutes fleurs", "shortage_probability": 0.87, "days_until_shortage": 2 },
+    { "product_name": "Courgettes",         "shortage_probability": 0.71, "days_until_shortage": 4 }
+  ],
+  "chart": {
+    "type": "bar",
+    "title": "Risque de rupture — 7 prochains jours",
+    "labels": ["Tomates anciennes", "Miel toutes fleurs", "Courgettes"],
+    "data": [0.94, 0.87, 0.71]
+  },
+  "tool_calls": ["forecast"],
+  "refused": false
+}
+```
+
+## Row-level security
+
+The Forecast Tool enforces the same producer-level scoping as the SQL tool. Predictions are computed exclusively from stock history rows where `producer_id` matches your verified identity — it is impossible to see another producer's products or probabilities, even indirectly through the model.
+
+## Automatic fallback
+
+If the ML model file is unavailable (for example, because training has not been run yet), the agent automatically falls back to a SQL-based heuristic that queries current stock levels against a low-stock threshold. You always receive an answer — the response will indicate which method was used.

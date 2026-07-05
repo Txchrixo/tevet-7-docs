@@ -1,0 +1,84 @@
+---
+title: "POST /api/auth/signup — Create a New User Account"
+sidebarTitle: "Sign Up"
+description: "Register a new Tevet-7 user with email and password. Returns a JWT and user object. The token has no tenant context until you create or join a tenant."
+---
+
+Use this endpoint to create a new Tevet-7 user account. You provide an email address, a password, and a display name. On success the API returns a JWT and the new user record. The token is immediately usable for creating or joining a tenant, but it carries no tenant context yet — you cannot call `/api/chat` until you have an active membership.
+
+## Request
+
+```
+POST /api/auth/signup
+Content-Type: application/json
+```
+
+<ParamField body="email" type="string" required>
+  The user's email address. Must be unique across the platform. Minimum 3 characters, maximum 200 characters.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's plaintext password. Minimum 8 characters, maximum 200 characters. The server hashes this before storing it — never send it over plain HTTP.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  The user's display name shown in the platform UI and in tenant member lists. Minimum 1 character, maximum 200 characters.
+</ParamField>
+
+## Response
+
+<ResponseField name="user" type="object">
+  The newly created user record.
+
+  <Expandable title="user fields">
+    <ResponseField name="user.id" type="integer">
+      Unique numeric identifier for the user.
+    </ResponseField>
+
+    <ResponseField name="user.email" type="string">
+      The email address the user registered with.
+    </ResponseField>
+
+    <ResponseField name="user.name" type="string">
+      The display name provided at signup.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  A signed JWT access token valid for 2 hours. The token's claims include `sub` (user ID) and `email`, but `tenant_id`, `role`, and `producer_id` are all `null` because a fresh account has no memberships yet.
+</ResponseField>
+
+## Errors
+
+| Code | Cause |
+|---|---|
+| `400 Bad Request` | A required field is missing or a validation rule failed (e.g. password shorter than 8 characters) |
+| `409 Conflict` | The email address is already registered to another account |
+
+## Example
+
+```bash
+curl -s -X POST https://your-tevet7-host/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "alice@example.com",
+    "password": "supersecret99",
+    "name": "Alice Martin"
+  }'
+```
+
+```json
+{
+  "user": {
+    "id": 7,
+    "email": "alice@example.com",
+    "name": "Alice Martin"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+<Note>
+  The returned JWT has `tenant_id: null`. You must create a tenant with `POST /api/tenants` or activate an existing one with `POST /api/tenants/{id}/activate` to obtain a token with a real tenant scope before you can call `/api/chat`.
+</Note>

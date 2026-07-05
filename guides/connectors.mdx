@@ -1,0 +1,77 @@
+---
+title: "Connect PostgreSQL, CSV, or Demo Data to Your Workspace"
+sidebarTitle: "Connectors"
+description: "Bridge your data source — a live Postgres database, a CSV file, or the built-in demo dataset — to the Tevet-7 AI agent in minutes."
+---
+
+A connector is the bridge between your data source and the AI agent. When a user asks a question, the agent generates SQL and the connector executes it against your database or dataset. Each workspace has exactly one active connector at a time.
+
+All connectors enforce **read-only access** — the AI agent can query your data but can never insert, update, delete, or modify it in any way.
+
+---
+
+## Supported connector types
+
+<Card title="PostgreSQL" icon="database">
+  Connects to a live PostgreSQL database via an async SQLAlchemy URL. The connector opens a read-only connection and introspects your tables to build the schema the agent uses for SQL generation.
+
+  **URL formats accepted:**
+  - `postgresql+asyncpg://user:pass@host:5432/dbname`
+  - `postgresql://user:pass@host:5432/dbname`
+</Card>
+
+<Card title="CSV" icon="file">
+  Upload a CSV file and the connector loads it into an in-memory SQLite table. No database setup required — good for quick trials and demos with sample data.
+</Card>
+
+<Card title="SQLite Demo" icon="play">
+  The pre-configured **Drive Producteur** demo dataset. No credentials, no setup. Includes producers, products, orders, payments, and stock data seeded for the demo tenant. Available immediately after signup.
+</Card>
+
+---
+
+## Setting up a connector
+
+Connectors are configured through the onboarding wizard. See the [Onboarding guide](/guides/onboarding) for step-by-step instructions. The key steps are:
+
+1. **Choose connector type** — PostgreSQL, CSV, or SQLite Demo.
+2. **Provide credentials** — paste your PostgreSQL connection URL or upload your CSV file.
+3. **Test the connection** — the wizard calls the `onboarding/connect` step, which verifies the connection and returns `{"ok": true, "tables_count": N}` on success.
+4. **Detect schema** — the `onboarding/detect-schema` step introspects your tables and columns, building the data contract the agent uses to generate SQL.
+
+---
+
+## Connection testing
+
+When you complete the `onboarding/connect` step, Tevet-7 opens a test connection to your database and returns:
+
+```json
+{
+  "ok": true,
+  "tables_count": 12
+}
+```
+
+If the connection fails (wrong credentials, firewall block, unreachable host), `ok` is `false` and an error message explains what went wrong. Your configuration is not saved until `ok` is `true`.
+
+---
+
+## Schema detection
+
+After a successful connection test, `onboarding/detect-schema` introspects your database to discover tables, columns, and data types. This schema is stored in your workspace configuration and used by the agent to:
+
+- Generate accurate SQL for your specific table structure
+- Enforce the table allowlist (only detected tables are accessible)
+- Apply row-level scoping to the correct columns
+
+You can re-run schema detection at any time if you add tables or change your schema.
+
+---
+
+<Warning>
+  Your PostgreSQL connection URL is stored encrypted at rest. Never share it in chat messages, support tickets, or log files. If you believe your URL has been compromised, update your database credentials and re-configure the connector.
+</Warning>
+
+<Info>
+  CSV files are loaded entirely into memory as an in-memory SQLite table. For datasets larger than a few tens of thousands of rows, use the PostgreSQL connector instead — it queries the database directly without loading all data into memory.
+</Info>

@@ -1,0 +1,224 @@
+---
+title: "GET /api/tenants/mine — List All Your Workspaces"
+sidebarTitle: "List Tenants"
+description: "List all Tevet-7 workspaces you belong to, switch your active tenant, and manage workspace membership — all through the tenant management endpoints."
+---
+
+The tenant management endpoints let you discover, inspect, and administer the workspaces associated with your account. You can list every workspace you are a member of, retrieve the full member roster for a specific workspace, switch your active tenant context (receiving a fresh scoped JWT), and add or remove members if you hold the `admin` role.
+
+All endpoints in this section require an `Authorization: Bearer <token>` header.
+
+---
+
+## List Your Workspaces
+
+Returns all tenant workspaces the authenticated user belongs to, along with your role in each.
+
+**`GET /api/tenants/mine`**
+
+### Response
+
+<ResponseField name="count" type="integer">
+  Total number of workspaces returned.
+</ResponseField>
+
+<ResponseField name="tenants" type="array">
+  Array of workspace membership objects.
+
+  <Expandable title="tenants item fields">
+    <ResponseField name="tenants[].tenant_id" type="string">
+      Unique tenant identifier.
+    </ResponseField>
+    <ResponseField name="tenants[].name" type="string">
+      Display name of the workspace.
+    </ResponseField>
+    <ResponseField name="tenants[].slug" type="string">
+      URL-safe slug for the workspace.
+    </ResponseField>
+    <ResponseField name="tenants[].role" type="string">
+      Your role in this workspace: `"admin"`, `"producer"`, or `"customer"`.
+    </ResponseField>
+    <ResponseField name="tenants[].producer_id" type="integer | null">
+      Your row-level scope value in this workspace. `null` for admin role.
+    </ResponseField>
+    <ResponseField name="tenants[].is_demo" type="boolean">
+      `true` if this is a read-only demo workspace.
+    </ResponseField>
+    <ResponseField name="tenants[].is_active" type="boolean">
+      `true` if this is your currently active workspace (the one encoded in your current JWT).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```bash
+curl https://api.tevet7.com/api/tenants/mine \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+```json
+{
+  "count": 2,
+  "tenants": [
+    {
+      "tenant_id": "fresh-logistics",
+      "name": "Fresh Logistics",
+      "slug": "fresh-logistics",
+      "role": "admin",
+      "producer_id": null,
+      "is_demo": false,
+      "is_active": true
+    },
+    {
+      "tenant_id": "dp",
+      "name": "Drive Producteur (Demo)",
+      "slug": "dp",
+      "role": "producer",
+      "producer_id": 42,
+      "is_demo": true,
+      "is_active": false
+    }
+  ]
+}
+```
+
+---
+
+## Get Workspace Detail
+
+Returns full information about one workspace plus its complete member list. You must be a member of the workspace to call this endpoint.
+
+**`GET /api/tenants/{tenant_id}`**
+
+### Response
+
+<ResponseField name="tenant" type="object">
+  The tenant object (`id`, `name`, `slug`, and additional metadata).
+</ResponseField>
+
+<ResponseField name="members" type="array">
+  All members of the workspace.
+
+  <Expandable title="members item fields">
+    <ResponseField name="members[].user_id" type="integer">
+      Platform user ID.
+    </ResponseField>
+    <ResponseField name="members[].email" type="string">
+      Member's email address.
+    </ResponseField>
+    <ResponseField name="members[].name" type="string">
+      Member's display name.
+    </ResponseField>
+    <ResponseField name="members[].role" type="string">
+      Role in this workspace: `"admin"`, `"producer"`, or `"customer"`.
+    </ResponseField>
+    <ResponseField name="members[].producer_id" type="integer | null">
+      Row-level scope value. `null` for admin-role members.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Errors
+
+| Status | Condition |
+|--------|-----------|
+| `403`  | You are not a member of the specified workspace. |
+| `404`  | The workspace does not exist. |
+
+---
+
+## Activate a Workspace
+
+Switches your active tenant context and returns a fresh JWT scoped to that workspace. Use the returned token for all subsequent API calls against that workspace.
+
+**`POST /api/tenants/{tenant_id}/activate`**
+
+No request body required.
+
+### Response
+
+<ResponseField name="membership" type="object">
+  Your updated membership record for the activated workspace (includes `role`, `producer_id`, `is_active: true`).
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  A new JWT with the activated tenant's context embedded. Replace your current token with this one.
+</ResponseField>
+
+#### Errors
+
+| Status | Condition |
+|--------|-----------|
+| `403`  | You are not a member of the specified workspace. |
+
+#### Example
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/activate \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+```json
+{
+  "membership": {
+    "tenant_id": "fresh-logistics",
+    "role": "admin",
+    "producer_id": null,
+    "is_active": true
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZW5hbnRfaWQiOiJmcmVzaC1sb2dpc3RpY3MiLCJyb2xlIjoiYWRtaW4ifQ..."
+}
+```
+
+---
+
+## Add a Member
+
+Adds a user (by email address) to a workspace. The user must already have a Tevet-7 account. Only `admin`-role members can call this endpoint. The new member's `is_active` flag is set to `false` — they must explicitly activate the workspace to use it.
+
+**`POST /api/tenants/{tenant_id}/members`**
+
+<ParamField body="email" type="string" required>
+  Email address of the user to add. The user must already have a Tevet-7 account.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Role to assign: `"admin"`, `"producer"`, or `"customer"`.
+</ParamField>
+
+<ParamField body="producer_id" type="integer">
+  Row-level scope value for the new member. Required for `"producer"` role; pass `null` for `"admin"`.
+</ParamField>
+
+#### Errors
+
+| Status | Condition |
+|--------|-----------|
+| `403`  | You are not an admin of this workspace. |
+| `404`  | No Tevet-7 account found for the provided email. |
+| `409`  | The user is already a member of this workspace. |
+
+---
+
+## Remove a Member
+
+Removes a user from a workspace. Only `admin`-role members can call this endpoint. You cannot remove the last admin — a workspace must always have at least one admin.
+
+**`DELETE /api/tenants/{tenant_id}/members/{user_id}`**
+
+No request body required. `{user_id}` is the integer platform user ID, available from the [Get Workspace Detail](#get-workspace-detail) member list.
+
+### Response
+
+```json
+{ "removed": true, "user_id": 7 }
+```
+
+#### Errors
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Attempting to remove the last admin of the workspace. |
+| `403`  | You are not an admin of this workspace. |
+| `404`  | The specified user is not a member of this workspace. |

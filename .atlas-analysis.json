@@ -1,0 +1,165 @@
+{
+  "projectType": "saas",
+  "projectName": "Tevet-7",
+  "projectDescription": "A configurable multi-tenant AI agent platform that lets businesses query their databases using natural language, with enterprise-grade row-level security, LLM orchestration, RAG search, ML forecasting, and human-in-the-loop approvals.",
+  "theme": "luma",
+  "primaryColor": "#2563EB",
+  "lightColor": "#EFF6FF",
+  "darkColor": "#1E3A8A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "guides/authentication",
+              "guides/tenants",
+              "guides/onboarding"
+            ]
+          },
+          {
+            "group": "AI Agent",
+            "pages": [
+              "guides/chat",
+              "guides/streaming",
+              "guides/rag-documents",
+              "guides/forecasting",
+              "guides/guardrails"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "guides/approvals",
+              "guides/observability",
+              "guides/export"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "guides/llm-providers",
+              "guides/connectors",
+              "guides/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/errors"
+            ]
+          },
+          {
+            "group": "Auth",
+            "pages": [
+              "api/auth/signup",
+              "api/auth/login",
+              "api/auth/me",
+              "api/auth/refresh",
+              "api/auth/demo-token"
+            ]
+          },
+          {
+            "group": "Chat",
+            "pages": [
+              "api/chat/send",
+              "api/chat/stream",
+              "api/chat/schema"
+            ]
+          },
+          {
+            "group": "Tenants",
+            "pages": [
+              "api/tenants/create",
+              "api/tenants/list",
+              "api/tenants/onboarding"
+            ]
+          },
+          {
+            "group": "Documents",
+            "pages": [
+              "api/documents/upload",
+              "api/documents/list",
+              "api/documents/delete"
+            ]
+          },
+          {
+            "group": "Approvals",
+            "pages": [
+              "api/approvals/list",
+              "api/approvals/decide"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Natural language database queries via LLM orchestration with function calling (SQL, RAG, ML forecasting)",
+    "Multi-tenant architecture with JWT-based authentication and tenant isolation",
+    "SQL row-level security via sqlglot AST rewriting — producer_id injection, read-only enforcement, table allowlists",
+    "Streaming SSE responses (POST /api/chat/stream) for real-time answer delivery",
+    "Documentary RAG with SQLite FTS5 + BM25 ranking and cited sources",
+    "ML stock shortage prediction (RandomForest, F1=0.83, ROC-AUC=0.98)",
+    "Human-in-the-loop approval queue for onboarding decisions (approve / reject / override)",
+    "Prompt injection, PII detection, and content moderation guardrails (deterministic, <1ms)",
+    "Conversation persistence with full history for multi-turn queries",
+    "Multi-LLM provider routing: Groq → DeepSeek → OpenRouter → Gemini with automatic fallback",
+    "Pluggable data connectors: SQLite, PostgreSQL, CSV",
+    "Observability via LocalTracer (SQLite) or Langfuse Cloud with cost accounting",
+    "Admin console with tenant stats, conversation viewer, and demo reset",
+    "Export conversations and analytics as CSV or PDF"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/signup — create user account",
+    "POST /api/auth/login — authenticate and get JWT",
+    "GET  /api/auth/me — current user + memberships",
+    "POST /api/auth/refresh — exchange refresh token",
+    "POST /api/auth/demo-token — public demo access",
+    "POST /api/chat — send a natural language query",
+    "POST /api/chat/stream — SSE streaming query",
+    "GET  /api/schema — tenant data schema",
+    "GET  /api/traces — list recent traces",
+    "GET  /api/traces/{trace_id} — trace detail",
+    "POST /api/tenants — create tenant",
+    "GET  /api/tenants/mine — list user tenants",
+    "POST /api/tenants/{id}/activate — switch active tenant",
+    "GET  /api/tenants/{id} — tenant detail + members",
+    "POST /api/tenants/{id}/members — add member",
+    "POST /api/tenants/{id}/onboarding/start — start onboarding wizard",
+    "POST /api/tenants/{id}/onboarding/connect — test data connection",
+    "POST /api/tenants/{id}/onboarding/detect-schema — auto-detect schema",
+    "POST /api/tenants/{id}/onboarding/save-schema — save schema",
+    "POST /api/tenants/{id}/onboarding/save-roles — save roles",
+    "POST /api/tenants/{id}/onboarding/complete — finish onboarding",
+    "GET  /api/tenants/{id}/onboarding/status — onboarding state",
+    "GET  /api/tenants/{id}/example-questions — suggested queries",
+    "POST /api/documents — upload PDF or text document",
+    "GET  /api/documents — list documents",
+    "GET  /api/documents/{id} — document detail + chunks",
+    "DELETE /api/documents/{id} — delete document",
+    "GET  /api/approvals — list approval requests (admin)",
+    "GET  /api/approvals/{id} — approval detail",
+    "POST /api/approvals/{id}/decide — approve / reject / override",
+    "POST /api/approvals/analyze/{onboarding_id} — re-run agent analysis",
+    "GET  /api/export/conversations.csv — export conversations CSV",
+    "GET  /api/export/conversations.pdf — export conversations PDF",
+    "GET  /health — liveness probe"
+  ]
+}

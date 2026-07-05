@@ -1,47 +1,299 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Quickstart: Connect Your Data and Start Asking Questions"
+sidebarTitle: "Quickstart"
+description: "Create an account, set up your workspace, connect a data source, and ask your first natural-language question — all via the Tevet-7 REST API."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through the complete path from a blank slate to your first answered question. All examples use `curl` and a base URL of `https://your-tevet7-host`. If you'd rather skip setup and explore immediately, jump to the [demo shortcut](#demo-shortcut) at the bottom of this page.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Sign up and get your JWT">
+    Create a new account by posting your email, password, and display name to the auth endpoint. Tevet-7 returns a user object and a signed JWT.
 
     ```bash
-    npm install your-package
+    curl -s -X POST https://your-tevet7-host/api/auth/signup \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "you@example.com",
+        "password": "s3cur3passw0rd",
+        "name": "Your Name"
+      }'
     ```
+
+    **Response**
+
+    ```json
+    {
+      "user": {
+        "id": 7,
+        "email": "you@example.com",
+        "name": "Your Name"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+    ```
+
+    Save the `token` value — you'll use it as a Bearer token in every subsequent request. Note that a fresh signup token has no tenant context yet (`tenant_id: null`). You'll get a scoped token in the next step.
+
+    <Note>
+      Passwords must be at least 8 characters. If the email is already registered, the API returns `HTTP 409 Conflict`.
+    </Note>
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Create a workspace">
+    A workspace (called a _tenant_) is your isolated environment — it holds your data connector, schema, roles, and conversation history. Create one by posting a display name and a URL-safe slug. You become the admin of the new workspace automatically.
 
     ```bash
-    your-cli init
+    curl -s -X POST https://your-tevet7-host/api/tenants \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-signup-token>" \
+      -d '{
+        "name": "Acme Analytics",
+        "slug": "acme-analytics"
+      }'
     ```
+
+    **Response**
+
+    ```json
+    {
+      "tenant": {
+        "id": "acme-analytics",
+        "name": "Acme Analytics",
+        "slug": "acme-analytics"
+      },
+      "membership": {
+        "tenant_id": "acme-analytics",
+        "role": "admin",
+        "producer_id": null,
+        "is_active": true
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+    ```
+
+    The response includes a **new JWT** (the `token` field) that now carries your tenant context — `tenant_id`, `role`, and `producer_id` are embedded in its claims. Replace your previous token with this one for all remaining steps.
+
+    <Tip>
+      Slugs must be lowercase letters, digits, and hyphens, and must start with a letter or digit (for example `acme-analytics` or `fresh-logistics`). They serve as the tenant's unique identifier across all API calls.
+    </Tip>
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Connect your data">
+    The onboarding wizard turns your workspace into an agent-ready environment in six sub-steps: start → connect → detect schema → save schema → save roles → complete. Run each step in order.
+
+    **3a — Start onboarding**
+
+    Declare the connector type. Use `"postgres"` for a PostgreSQL database or `"csv"` for a file upload.
 
     ```bash
-    your-cli start
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/start \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -d '{"connector_type": "postgres"}'
+    ```
+
+    **3b — Connect and test**
+
+    Provide your connection URL. Tevet-7 opens a read-only connection and reports back the number of tables it found.
+
+    ```bash
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/connect \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -F "connector_type=postgres" \
+      -F "connection_url=postgresql+asyncpg://user:pass@db.example.com:5432/acme"
+    ```
+
+    ```json
+    { "ok": true, "error": null, "tables_count": 12 }
+    ```
+
+    **3c — Auto-detect the schema**
+
+    Tevet-7 inspects your tables and columns and produces a draft schema you can review before saving.
+
+    ```bash
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/detect-schema \
+      -H "Authorization: Bearer <your-tenant-token>"
+    ```
+
+    ```json
+    {
+      "schema": {
+        "tables": [
+          { "name": "orders",   "columns": ["id", "product_id", "amount", "created_at"] },
+          { "name": "products", "columns": ["id", "name", "category", "price"] }
+        ]
+      }
+    }
+    ```
+
+    **3d — Save the schema**
+
+    Post the (optionally edited) schema back to confirm it.
+
+    ```bash
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/save-schema \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -d '{
+        "schema_config": {
+          "tables": [
+            { "name": "orders",   "columns": ["id", "product_id", "amount", "created_at"] },
+            { "name": "products", "columns": ["id", "name", "category", "price"] }
+          ]
+        }
+      }'
+    ```
+
+    **3e — Save roles and scope columns**
+
+    Define which roles can query which tables and whether row-level scoping applies. Set `scope_column` to the column that identifies the current user's row-level boundary (for example `producer_id`), or `null` for unrestricted admin access.
+
+    ```bash
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/save-roles \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -d '{
+        "roles_config": {
+          "producer": { "scope_column": "producer_id" },
+          "admin":    { "scope_column": null }
+        }
+      }'
+    ```
+
+    **3f — Complete onboarding**
+
+    Flip the `onboarded` flag so the chat endpoint starts accepting requests for your workspace.
+
+    ```bash
+    curl -s -X POST \
+      https://your-tevet7-host/api/tenants/acme-analytics/onboarding/complete \
+      -H "Authorization: Bearer <your-tenant-token>"
+    ```
+
+    ```json
+    { "onboarded": true, "tenant_id": "acme-analytics" }
     ```
   </Step>
+
+  <Step title="Ask your first question">
+    With onboarding complete, send a natural-language question to the chat endpoint. Tevet-7 picks the right tool (SQL, RAG, or Forecast), runs the query, and returns an answer with the SQL used and an optional chart specification.
+
+    ```bash
+    curl -s -X POST https://your-tevet7-host/api/chat \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -d '{"message": "What are my top 5 products by revenue?"}'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "answer": "Your top 5 products by revenue are: 1. Organic Tomatoes — €4,820, 2. Free-range Eggs — €3,210, 3. Artisan Bread — €2,940, 4. Honey (500g) — €2,670, 5. Goat Cheese — €2,105.",
+      "sql": "SELECT p.name, SUM(o.amount) AS revenue FROM orders o JOIN products p ON o.product_id = p.id WHERE o.producer_id = 42 GROUP BY p.name ORDER BY revenue DESC LIMIT 5",
+      "scope_clause": "producer_id = 42",
+      "chart": {
+        "type": "bar",
+        "labels": ["Organic Tomatoes", "Free-range Eggs", "Artisan Bread", "Honey (500g)", "Goat Cheese"],
+        "datasets": [{ "label": "Revenue (€)", "data": [4820, 3210, 2940, 2670, 2105] }]
+      },
+      "tokens_in": 412,
+      "tokens_out": 138,
+      "latency_ms": 820,
+      "tool_calls": [{ "name": "sql_read", "latency_ms": 310, "success": true }],
+      "refused": false,
+      "sources": [],
+      "forecast_predictions": null,
+      "trace_id": "trc_01j2abc",
+      "conversation_id": "conv_01j2def"
+    }
+    ```
+
+    Notice that `scope_clause` confirms row-level security was applied — your `producer_id` was automatically injected into the WHERE clause regardless of what the question said.
+
+    <Info>
+      The `conversation_id` returned here is yours to keep. Pass it back as `"conversation_id": "conv_01j2def"` in future requests to continue the same conversation thread, and Tevet-7 will include prior context when answering follow-up questions.
+    </Info>
+  </Step>
+
+  <Step title="Try streaming">
+    For a more responsive UI, use the streaming endpoint. It returns **Server-Sent Events (SSE)**: progress steps first, then answer chunks word-by-word, then a final `done` event with the complete response envelope.
+
+    ```bash
+    curl -s -X POST https://your-tevet7-host/api/chat/stream \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <your-tenant-token>" \
+      -H "Accept: text/event-stream" \
+      -d '{"message": "What are my top 5 products by revenue?"}'
+    ```
+
+    **SSE event stream**
+
+    ```text
+    data: {"type": "step",  "title": "Connexion aux données…"}
+
+    data: {"type": "step",  "title": "Analyse de la question…"}
+
+    data: {"type": "chunk", "content": "Your "}
+
+    data: {"type": "chunk", "content": "top "}
+
+    data: {"type": "chunk", "content": "5 "}
+
+    data: {"type": "chunk", "content": "products "}
+
+    data: {"type": "done",  "response": { "answer": "...", "sql": "...", "chart": {...}, "refused": false, ... }}
+    ```
+
+    Each event has a `type` field:
+
+    | Type | Meaning |
+    |---|---|
+    | `step` | A progress update from the agent (shown in a loading indicator) |
+    | `chunk` | One word or whitespace fragment of the final answer |
+    | `done` | The complete response envelope — same shape as `POST /api/chat` |
+    | `error` | An unrecoverable error occurred; the `message` field explains it |
+
+    <Tip>
+      In JavaScript, consume SSE with the browser's `EventSource` API or the `fetch` + `ReadableStream` pattern. The stream is chunked with `Content-Type: text/event-stream` and `Cache-Control: no-cache`.
+    </Tip>
+  </Step>
+
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+---
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## Demo shortcut
+
+Don't have a database ready? Use the Drive Producteur demo tenant to explore the platform immediately. A single request gives you a scoped JWT — no signup required.
+
+```bash
+curl -s -X POST https://your-tevet7-host/api/auth/demo-token
+```
+
+```json
+{
+  "user": { "id": 1, "email": "marie@tevet7.dev", "name": "Marie Dupont", "is_demo": true },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "is_demo": true
+}
+```
+
+Use the returned `token` as your Bearer token and send questions to `POST /api/chat`. You'll be querying a pre-loaded French marketplace dataset as producer #42 (Ferme du Vallon). Try asking:
+
+- `"What were my sales last week?"`
+- `"Which products are at risk of a stock shortage?"`
+- `"Show me my net revenue by month."`
+
+<Warning>
+  Demo tokens are scoped to read-only data for producer #42. Destructive actions are blocked, and the demo dataset resets automatically every 24 hours.
+</Warning>

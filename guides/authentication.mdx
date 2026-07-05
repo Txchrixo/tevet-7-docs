@@ -1,0 +1,192 @@
+---
+title: "Sign Up, Log In, and Authenticate Tevet-7 API Calls"
+sidebarTitle: "Authentication"
+description: "Learn how to sign up, log in, and attach JWT Bearer tokens to every Tevet-7 API request — including silent token refresh and no-credential demo access."
+---
+
+Tevet-7 secures every API call with JSON Web Tokens (JWT). After you sign up and log in, the server issues a short-lived access token and a long-lived refresh token. You attach the access token to each request as an `Authorization: Bearer <token>` header — no API key, no session cookie.
+
+## Sign up and log in
+
+<Steps>
+  <Step title="Create your account">
+    Send your name, email, and password to `POST /api/auth/signup`. On success you receive a JWT and a user object. The token's `tenant_id`, `role`, and `producer_id` claims are all `null` — you must create or join a workspace before querying data.
+
+    ```bash
+    curl -s -X POST https://your-host/api/auth/signup \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "you@example.com",
+        "password": "s3cur3pass",
+        "name": "Your Name"
+      }'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "user": {
+        "id": 7,
+        "email": "you@example.com",
+        "name": "Your Name"
+      },
+      "token": "<access-jwt>"
+    }
+    ```
+  </Step>
+
+  <Step title="Log in">
+    Call `POST /api/auth/login` with your email and password. The response includes both an `access token` (valid for 2 hours) and a `refresh_token` (valid for 30 days). Store both securely.
+
+    ```bash
+    curl -s -X POST https://your-host/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "you@example.com",
+        "password": "s3cur3pass"
+      }'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "user": {
+        "id": 7,
+        "email": "you@example.com",
+        "name": "Your Name"
+      },
+      "token": "<access-jwt>",
+      "refresh_token": "<refresh-jwt>"
+    }
+    ```
+  </Step>
+
+  <Step title="Attach the token to requests">
+    Include the access token in the `Authorization` header on every subsequent call.
+
+    ```bash
+    curl -H "Authorization: Bearer <your-token>" \
+      https://your-host/api/chat
+    ```
+  </Step>
+</Steps>
+
+## What's inside the JWT
+
+When you decode the access token you'll find the following claims:
+
+| Claim | Type | Description |
+|---|---|---|
+| `sub` | string | Your numeric user ID |
+| `email` | string | Your email address |
+| `tenant_id` | string \| null | The currently active workspace |
+| `role` | `producer` \| `admin` \| null | Your role within that workspace |
+| `producer_id` | integer \| null | Row-level scope value (producers only) |
+| `is_demo` | boolean | `true` for demo-account tokens |
+
+<Warning>
+  `producer_id` and `role` are derived from your JWT — the server ignores any `producer_id` or `role` fields you send in a request body. This is intentional: it prevents privilege escalation via crafted payloads.
+</Warning>
+
+## Refresh your access token
+
+Access tokens expire after **2 hours**. Exchange your refresh token (valid for 30 days) for a new access token without re-entering your password.
+
+```bash
+curl -s -X POST https://your-host/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "<your-refresh-token>"
+  }'
+```
+
+**Response**
+
+```json
+{
+  "access_token": "<new-access-jwt>",
+  "token_type": "bearer"
+}
+```
+
+## Get a demo token
+
+Want to explore the API without creating an account? Call `POST /api/auth/demo-token` — no credentials required. You'll receive a pre-scoped JWT for a read-only demo workspace, plus a refresh token.
+
+```bash
+curl -s -X POST https://your-host/api/auth/demo-token
+```
+
+**Response**
+
+```json
+{
+  "user": {
+    "id": 1,
+    "email": "marie@tevet7.dev",
+    "name": "Marie Dubois",
+    "is_demo": true
+  },
+  "token": "<demo-access-jwt>",
+  "refresh_token": "<demo-refresh-jwt>",
+  "is_demo": true
+}
+```
+
+<Note>
+  Demo tokens carry `is_demo: true` in their claims. Destructive operations are blocked for demo accounts.
+</Note>
+
+## Check who you are
+
+At any time you can verify your token and retrieve your full membership list with `GET /api/auth/me`.
+
+```bash
+curl -s https://your-host/api/auth/me \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "user": { "id": 7, "email": "you@example.com", "name": "Your Name" },
+  "memberships": [
+    {
+      "tenant_id": "acme-corp",
+      "name": "Acme Corp",
+      "role": "admin",
+      "producer_id": null,
+      "is_active": true
+    }
+  ]
+}
+```
+
+## Token lifetime summary
+
+| Token | Lifetime | How to renew |
+|---|---|---|
+| Access token | 2 hours | Call `POST /api/auth/refresh` with your refresh token |
+| Refresh token | 30 days | Log in again with `POST /api/auth/login` |
+
+## Rate limiting
+
+The login endpoint is rate-limited to **5 attempts per minute per IP address**. If you exceed this limit, the server returns `429 Too Many Requests` with a `Retry-After` header indicating how many seconds to wait.
+
+Chat requests (`/api/chat`) are rate-limited to **120 requests per minute per workspace**. This limit is shared across all members of a tenant.
+
+<Tip>
+  If you are scripting multiple login calls in tests, add a short delay between attempts or cache the token instead of re-authenticating on every request.
+</Tip>
+
+## Error reference
+
+| HTTP status | Meaning |
+|---|---|
+| `401 Unauthorized` | Missing, expired, or invalid token |
+| `403 Forbidden` | Token is valid but has no active tenant context |
+| `409 Conflict` | The email address is already registered |
+| `429 Too Many Requests` | Login rate limit exceeded — check `Retry-After` |

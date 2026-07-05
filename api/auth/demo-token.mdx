@@ -1,0 +1,97 @@
+---
+title: "POST /api/auth/demo-token — Get a Demo Access Token"
+sidebarTitle: "Demo Token"
+description: "Get a no-credential demo JWT scoped to the Drive Producteur demo tenant. Useful for sandbox testing, live demos, and evaluating the API without signing up."
+---
+
+This endpoint issues a demo JWT without requiring any credentials. It logs you in as `marie@tevet7.dev` — producer #42 on the `dp` (Drive Producteur) demo tenant — and returns both an access token and a refresh token. The JWT carries `is_demo: true` so your application can detect the demo context and behave accordingly: showing a demo banner, hiding billing settings, and disabling destructive actions.
+
+## Request
+
+```
+POST /api/auth/demo-token
+```
+
+No request body, headers, or authentication are required. This endpoint is publicly accessible.
+
+## Response
+
+<ResponseField name="user" type="object">
+  The demo user's profile.
+
+  <Expandable title="user fields">
+    <ResponseField name="user.id" type="integer">
+      Numeric ID of the demo user (`marie@tevet7.dev`).
+    </ResponseField>
+
+    <ResponseField name="user.email" type="string">
+      Always `"marie@tevet7.dev"` for the demo account.
+    </ResponseField>
+
+    <ResponseField name="user.name" type="string">
+      Display name of the demo user.
+    </ResponseField>
+
+    <ResponseField name="user.is_demo" type="boolean">
+      Always `true`. Use this flag in your UI to render the demo banner and prevent destructive operations.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  A signed JWT access token for the demo tenant. Claims include `tenant_id` for the `dp` tenant, `role: "producer"`, `producer_id: 42`, and `is_demo: true`. Valid for 2 hours.
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string">
+  A long-lived refresh token you can exchange via `POST /api/auth/refresh` to renew the demo access token.
+</ResponseField>
+
+<ResponseField name="is_demo" type="boolean">
+  Always `true` at the top level of the response, mirroring the flag inside the JWT. Check this value to gate demo-specific UI logic.
+</ResponseField>
+
+## Using the Demo Token
+
+Once you have the token, use it as a standard Bearer token in subsequent requests:
+
+```bash
+# 1. Get the demo token
+TOKEN=$(curl -s -X POST https://your-tevet7-host/api/auth/demo-token \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# 2. Send a chat message using the demo token
+curl -s -X POST https://your-tevet7-host/api/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Quels sont les producteurs avec du stock critique ?"}'
+```
+
+## Errors
+
+| Code | Cause |
+|---|---|
+| `503 Service Unavailable` | The demo backend is unreachable or the demo user account is misconfigured. |
+
+## Full Example
+
+```bash
+curl -s -X POST https://your-tevet7-host/api/auth/demo-token
+```
+
+```json
+{
+  "user": {
+    "id": 42,
+    "email": "marie@tevet7.dev",
+    "name": "Marie Dubois",
+    "is_demo": true
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "is_demo": true
+}
+```
+
+<Info>
+  The demo tenant is reset periodically to clear test data and restore the original seed state. Do not store anything important — conversations, uploaded documents, or approval records — in the demo tenant. Use it for exploration and integration testing only.
+</Info>

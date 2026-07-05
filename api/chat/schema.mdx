@@ -1,0 +1,193 @@
+---
+title: "GET /api/schema — Retrieve the Tenant Data Schema"
+sidebarTitle: "Get Schema"
+description: "Retrieve your tenant's data schema as JSON — tables, columns, types, row-level scope configuration, forbidden tables, and available write actions."
+---
+
+The `/api/schema` endpoint returns your tenant's data contract as a JSON document: the tables the agent is allowed to query, their columns and types, the row-level scope configuration that controls what each role can see, the list of tables the agent can never access, and the write actions available through the human-in-the-loop system. This is the same schema the agent loads at startup to generate SQL and enforce security rules.
+
+Use this endpoint to inspect what questions you can ask, to build a schema-viewer UI, or to validate that your connected data source matches the expected structure.
+
+## Request
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <token>` — a valid Tevet-7 JWT.
+</ParamField>
+
+**`GET /api/schema`**
+
+No request body.
+
+---
+
+## Response
+
+The response mirrors the structure of the tenant's `schema.yaml` configuration, serialised as JSON.
+
+### Top-Level Fields
+
+<ResponseField name="metadata" type="object">
+  Tenant and schema metadata.
+
+  <Expandable title="metadata fields">
+    <ResponseField name="metadata.tenant_id" type="string">
+      Unique tenant identifier (e.g. `"acme-corp"`).
+    </ResponseField>
+    <ResponseField name="metadata.tenant_name" type="string">
+      Human-readable tenant name (e.g. `"Acme Corp"`).
+    </ResponseField>
+    <ResponseField name="metadata.schema_version" type="string">
+      Semantic version of this schema (e.g. `"0.1.0"`).
+    </ResponseField>
+    <ResponseField name="metadata.default_limit" type="integer">
+      Default `LIMIT` the SQL rewriter injects into every query (e.g. `1000`).
+    </ResponseField>
+    <ResponseField name="metadata.currency" type="string">
+      ISO 4217 currency code used in monetary columns (e.g. `"EUR"`).
+    </ResponseField>
+    <ResponseField name="metadata.timezone" type="string">
+      IANA timezone for date/time interpretation (e.g. `"Europe/Paris"`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tables" type="array">
+  All tables the agent may query for the authenticated role.
+
+  <Expandable title="tables item fields">
+    <ResponseField name="tables[].name" type="string">
+      Table name as it exists in the data source.
+    </ResponseField>
+    <ResponseField name="tables[].description" type="string">
+      Human-readable description of the table's business purpose.
+    </ResponseField>
+    <ResponseField name="tables[].tenant_scope_column" type="string">
+      Column used for row-level security scoping (e.g. `"producer_id"`). The agent automatically injects `WHERE <scope_column> = <scope_value>` for producer-role queries.
+    </ResponseField>
+    <ResponseField name="tables[].columns" type="array">
+      Column definitions. Each item has `name` (string), `type` (string — e.g. `"integer"`, `"varchar"`, `"timestamp"`, `"decimal"`, `"boolean"`), and `description` (string).
+    </ResponseField>
+    <ResponseField name="tables[].joins_to" type="array">
+      Suggested join relationships. Each item has `table` (string) and `on` (SQL join condition string).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="forbidden_tables" type="array">
+  Table names the agent is never permitted to query, regardless of role. Any SQL referencing these tables is rejected by the rewriter before execution.
+</ResponseField>
+
+<ResponseField name="business_actions" type="array">
+  Write actions available through the human-in-the-loop system. The agent can propose these actions but a human must approve them before execution.
+
+  <Expandable title="business_actions item fields">
+    <ResponseField name="business_actions[].name" type="string">
+      Action identifier (e.g. `"update_stock"`, `"cancel_order"`).
+    </ResponseField>
+    <ResponseField name="business_actions[].description" type="string">
+      Human-readable description of what the action does.
+    </ResponseField>
+    <ResponseField name="business_actions[].requires_approval" type="boolean">
+      Always `true` — all write actions require human approval.
+    </ResponseField>
+    <ResponseField name="business_actions[].allowed_for_roles" type="array">
+      Roles permitted to propose this action (array of strings, e.g. `["producer", "admin"]`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl https://api.tevet7.com/api/schema \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Response (abbreviated)
+
+```json
+{
+  "metadata": {
+    "tenant_id": "acme-corp",
+    "tenant_name": "Acme Corp",
+    "schema_version": "0.1.0",
+    "default_limit": 1000,
+    "currency": "EUR",
+    "timezone": "Europe/Paris"
+  },
+  "tables": [
+    {
+      "name": "products",
+      "description": "Producer product catalogue.",
+      "tenant_scope_column": "producer_id",
+      "columns": [
+        { "name": "id",          "type": "integer", "description": "Unique product identifier." },
+        { "name": "producer_id", "type": "integer", "description": "Owning producer (scope column)." },
+        { "name": "name",        "type": "varchar", "description": "Product name." },
+        { "name": "category",    "type": "varchar", "description": "Product category." },
+        { "name": "price_eur",   "type": "decimal", "description": "Unit price in EUR." },
+        { "name": "is_available","type": "boolean", "description": "Whether the product is on sale." }
+      ],
+      "joins_to": [
+        { "table": "order_items", "on": "products.id = order_items.product_id" },
+        { "table": "stocks",      "on": "products.id = stocks.product_id" }
+      ]
+    },
+    {
+      "name": "orders",
+      "description": "Customer orders placed on the marketplace.",
+      "tenant_scope_column": "producer_id",
+      "columns": [
+        { "name": "id",           "type": "integer",   "description": "Unique order identifier." },
+        { "name": "producer_id",  "type": "integer",   "description": "Selling producer (scope column)." },
+        { "name": "total_amount", "type": "decimal",   "description": "Order total in EUR." },
+        { "name": "status",       "type": "varchar",   "description": "Order status." },
+        { "name": "created_at",   "type": "timestamp", "description": "Order creation timestamp." }
+      ],
+      "joins_to": [
+        { "table": "order_items", "on": "orders.id = order_items.order_id" }
+      ]
+    }
+  ],
+  "forbidden_tables": [
+    "users",
+    "audit_logs",
+    "compliance_flags",
+    "payout_bank_accounts",
+    "api_keys",
+    "webhooks"
+  ],
+  "business_actions": [
+    {
+      "name": "update_stock",
+      "description": "Adjust the stock quantity for a product.",
+      "requires_approval": true,
+      "allowed_for_roles": ["producer"]
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order (automatic refund if already paid).",
+      "requires_approval": true,
+      "allowed_for_roles": ["producer", "admin"]
+    },
+    {
+      "name": "refund_payment",
+      "description": "Manually refund a payment (always traced).",
+      "requires_approval": true,
+      "allowed_for_roles": ["admin"]
+    }
+  ]
+}
+```
+
+---
+
+## Use Cases
+
+- **Schema viewer UI** — render a table explorer in your admin panel so users understand what data the agent can access.
+- **Question suggestions** — inspect column names and descriptions to generate contextual example questions. See also [`GET /api/tenants/{id}/example-questions`](/api/tenants/onboarding#example-questions).
+- **Integration validation** — after connecting a new data source, call this endpoint to confirm that all expected tables and columns were detected correctly before completing onboarding.

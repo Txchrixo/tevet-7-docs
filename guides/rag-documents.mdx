@@ -1,0 +1,195 @@
+---
+title: "Upload and Search Documents in Your AI Knowledge Base"
+sidebarTitle: "Documents"
+description: "Upload PDFs and text documents so the Tevet-7 agent can answer questions using your knowledge base, with cited sources in every response."
+---
+
+The RAG (Retrieval-Augmented Generation) tool lets the agent answer questions drawn from your uploaded documents — terms of service, FAQs, product manuals, delivery policies, or any reference material that lives outside your database. When the agent detects a documentary intent in your question, it searches your document corpus using BM25 ranking and returns an answer with cited source excerpts so you can verify every claim.
+
+## How it works
+
+<Steps>
+  <Step title="Upload your documents">
+    Send PDFs or plain text to `POST /api/documents`. The platform extracts the text, splits it into indexed chunks, and stores them in a full-text search index scoped to your tenant.
+  </Step>
+  <Step title="Ask natural-language questions">
+    Send any question to the standard chat endpoint. The agent automatically detects documentary intent ("what are the delivery terms?", "is there a minimum order?") and searches your document corpus.
+  </Step>
+  <Step title="Receive answers with citations">
+    The response `sources` array contains the exact document titles and excerpts the agent used to compose its answer, so you can trace every claim back to the source.
+  </Step>
+</Steps>
+
+## Upload a document
+
+```
+POST /api/documents
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+```
+
+<ParamField body="title" type="string" required>
+  A human-readable title for the document, shown in the `sources` array of chat responses. Example: `"CGV Drive Producteur"`.
+</ParamField>
+
+<ParamField body="source_type" type="string" required>
+  Either `"pdf"` or `"text"`. Determines how the content is ingested.
+</ParamField>
+
+<ParamField body="file" type="file">
+  Required when `source_type` is `"pdf"`. The PDF file to upload.
+</ParamField>
+
+<ParamField body="content" type="string">
+  Required when `source_type` is `"text"`. The raw text content of the document.
+</ParamField>
+
+### Upload a PDF
+
+```bash
+curl -X POST https://your-tenant.tevet7.com/api/documents \
+  -H 'Authorization: Bearer <token>' \
+  -F 'title=CGV Drive Producteur' \
+  -F 'source_type=pdf' \
+  -F 'file=@/path/to/cgv.pdf'
+```
+
+### Upload plain text
+
+```bash
+curl -X POST https://your-tenant.tevet7.com/api/documents \
+  -H 'Authorization: Bearer <token>' \
+  -F 'title=FAQ Livraison' \
+  -F 'source_type=text' \
+  -F 'content=Les commandes passées avant 18h sont livrées le lendemain entre 8h et 13h...'
+```
+
+### Upload response
+
+```json
+{
+  "document_id": 7,
+  "title": "CGV Drive Producteur",
+  "chunks_count": 14,
+  "source_type": "pdf",
+  "tenant_id": "acme"
+}
+```
+
+<ResponseField name="document_id" type="integer">
+  Unique identifier for the uploaded document. Use it to fetch details or delete the document.
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  The title you provided.
+</ResponseField>
+
+<ResponseField name="chunks_count" type="integer">
+  Number of text chunks the document was split into and indexed. Larger documents produce more chunks.
+</ResponseField>
+
+<ResponseField name="source_type" type="string">
+  `"pdf"` or `"text"`, echoed from the request.
+</ResponseField>
+
+<ResponseField name="tenant_id" type="string">
+  Your tenant identifier, confirming the document is scoped to your workspace.
+</ResponseField>
+
+## List documents
+
+```
+GET /api/documents
+Authorization: Bearer <token>
+```
+
+Returns all documents indexed for your tenant, ordered by upload date (newest first).
+
+```bash
+curl https://your-tenant.tevet7.com/api/documents \
+  -H 'Authorization: Bearer <token>'
+```
+
+```json
+{
+  "count": 3,
+  "documents": [
+    {
+      "id": 7,
+      "title": "CGV Drive Producteur",
+      "source_type": "pdf",
+      "source_filename": "cgv.pdf",
+      "chunks_count": 14,
+      "created_at": "2024-07-10T09:22:31"
+    },
+    {
+      "id": 5,
+      "title": "FAQ Livraison",
+      "source_type": "text",
+      "source_filename": null,
+      "chunks_count": 6,
+      "created_at": "2024-07-08T14:05:10"
+    }
+  ]
+}
+```
+
+## Get document detail
+
+```
+GET /api/documents/{id}
+Authorization: Bearer <token>
+```
+
+Returns the full document including its raw content and all indexed chunks.
+
+```bash
+curl https://your-tenant.tevet7.com/api/documents/7 \
+  -H 'Authorization: Bearer <token>'
+```
+
+## Delete a document
+
+```
+DELETE /api/documents/{id}
+Authorization: Bearer <token>
+```
+
+Removes the document and all its indexed chunks. The agent will no longer cite it in future answers.
+
+```bash
+curl -X DELETE https://your-tenant.tevet7.com/api/documents/7 \
+  -H 'Authorization: Bearer <token>'
+```
+
+```json
+{ "deleted": true, "document_id": 7 }
+```
+
+## Sources in chat responses
+
+When the agent uses one or more of your documents to answer a question, the `sources` array in the chat response contains cited excerpts:
+
+```json
+{
+  "answer": "Les retours sont acceptés dans les 14 jours suivant la livraison, à condition que les produits soient non-ouverts.",
+  "sources": [
+    {
+      "title": "CGV Drive Producteur",
+      "excerpt": "Article 8 — Retours et remboursements : tout article non-ouvert peut être retourné dans un délai de 14 jours à compter de la date de livraison."
+    }
+  ],
+  "tool_calls": ["rag_search"],
+  "refused": false
+}
+```
+
+Each entry in `sources` tells you exactly which document and passage the agent drew from, so you can audit every answer.
+
+<Note>
+  Scanned PDFs with no extractable text layer return HTTP **400**. Make sure your PDFs contain selectable text before uploading. If you have a scanned document, run it through an OCR tool first and upload the resulting text using `source_type=text`.
+</Note>
+
+<Tip>
+  Upload your FAQ, terms of service, and product manuals as soon as you set up your workspace. The more reference material the agent has access to, the more accurately it can answer questions that go beyond raw database queries.
+</Tip>

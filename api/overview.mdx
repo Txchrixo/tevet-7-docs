@@ -1,0 +1,153 @@
+---
+title: "Tevet-7 API Reference: Base URL, Auth, and Rate Limits"
+sidebarTitle: "Overview"
+description: "Complete reference for the Tevet-7 API: base URL, authentication, JSON conventions, rate limits, token quotas, and a full endpoint index."
+---
+
+The Tevet-7 API is a JSON REST API that powers the multi-tenant AI agent platform. Every response body is JSON. Successful responses return HTTP `200`; errors use standard HTTP status codes with a `{"detail": "..."}` body. This page covers everything you need before making your first request: where to send calls, how to authenticate, what rate limits apply, and a full index of every available endpoint.
+
+## Base URL
+
+```
+https://your-tevet7-host
+```
+
+Replace `your-tevet7-host` with the hostname of your Tevet-7 deployment. There is no version prefix in the URL — the API is currently v1 and all paths start directly from `/api/`.
+
+## Content Types
+
+All request and response bodies use `application/json`. The single exception is document upload, which uses `multipart/form-data`. Set the `Content-Type` header explicitly on every `POST`/`PUT` request.
+
+## Authentication
+
+All endpoints require a Bearer token in the `Authorization` header **except** the three public auth endpoints listed below.
+
+```
+Authorization: Bearer <token>
+```
+
+The three endpoints that do **not** require a token are:
+
+| Endpoint | Reason |
+|---|---|
+| `POST /api/auth/signup` | Issues the first token |
+| `POST /api/auth/login` | Issues a token from credentials |
+| `POST /api/auth/demo-token` | Issues a demo token without credentials |
+
+Tokens are JWTs signed by the server. They embed your `tenant_id`, `role`, and `producer_id` from your active tenant membership. Tokens expire after 2 hours; use `POST /api/auth/refresh` to renew silently.
+
+## API Versioning
+
+The API is currently **v1**. There is no `/v1/` prefix in any URL. When breaking changes are introduced, a new version prefix will be added and the migration path will be documented here.
+
+## Rate Limits
+
+| Scope | Limit |
+|---|---|
+| Chat endpoints (`/api/chat`, `/api/chat/stream`) | 120 requests / minute per tenant |
+| Login (`POST /api/auth/login`) | 5 attempts / minute per IP |
+
+When a rate limit is exceeded the server returns `HTTP 429 Too Many Requests` with a `Retry-After` header indicating how many seconds to wait before retrying.
+
+## Token Quota
+
+Each tenant has a daily token budget of **200,000 tokens**. When that budget is exhausted the API returns `HTTP 429 Too Many Requests` for chat requests. The counter resets at midnight UTC.
+
+## Health Endpoint
+
+Use `GET /health` as a lightweight liveness probe. It never touches the database.
+
+```bash
+curl https://your-tevet7-host/health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "tevet-7",
+  "version": "x.y.z"
+}
+```
+
+## Response Format
+
+Every response — success or failure — is JSON. The top-level shape depends on the endpoint; errors always follow:
+
+```json
+{ "detail": "human-readable message" }
+```
+
+Validation errors from Pydantic use an array form:
+
+```json
+{
+  "detail": [
+    { "loc": ["body", "email"], "msg": "field required", "type": "value_error.missing" }
+  ]
+}
+```
+
+## Endpoint Index
+
+### Auth
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/signup` | Create a new user account |
+| `POST` | `/api/auth/login` | Authenticate and receive a JWT |
+| `GET` | `/api/auth/me` | Return current user and memberships |
+| `POST` | `/api/auth/refresh` | Exchange refresh token for new access token |
+| `POST` | `/api/auth/demo-token` | Receive a demo JWT without credentials |
+
+### Chat
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/chat` | Send a message and receive a full response |
+| `POST` | `/api/chat/stream` | Send a message and stream the response |
+| `GET` | `/api/schema` | Return the active tenant's data schema |
+
+### Traces
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/traces` | List recent agent traces for the tenant |
+| `GET` | `/api/traces/{trace_id}` | Retrieve a single trace by ID |
+
+### Tenants
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/tenants` | Create a new tenant |
+| `GET` | `/api/tenants/mine` | List tenants you are a member of |
+| `POST` | `/api/tenants/{id}/activate` | Switch active tenant (re-issues JWT) |
+| `GET` | `/api/tenants/{id}` | Get tenant details and member list |
+| `POST` | `/api/tenants/{id}/members` | Add a member to a tenant (admin only) |
+| `DELETE` | `/api/tenants/{id}/members/{user_id}` | Remove a member from a tenant (admin only) |
+| `GET` | `/api/tenants/{id}/onboarding/status` | Retrieve onboarding status |
+
+### Documents
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/documents` | Upload a document (multipart/form-data) |
+| `GET` | `/api/documents` | List documents for the active tenant |
+| `GET` | `/api/documents/{id}` | Get document metadata and status |
+| `DELETE` | `/api/documents/{id}` | Delete a document |
+
+### Approvals
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/approvals` | List pending and resolved approvals |
+| `GET` | `/api/approvals/{id}` | Get a single approval record |
+| `POST` | `/api/approvals/{id}/decide` | Approve or reject an agent proposal |
+| `POST` | `/api/approvals/analyze/{onboarding_id}` | Re-run agent analysis on an onboarding dossier |
+
+### Export
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/export/conversations.csv` | Download all conversations as CSV |
+| `GET` | `/api/export/conversations.pdf` | Download all conversations as PDF |
+| `GET` | `/api/export/messages/{conversation_id}.csv` | Download messages for one conversation as CSV |

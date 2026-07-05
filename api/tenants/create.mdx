@@ -1,0 +1,113 @@
+---
+title: "POST /api/tenants — Create a New Tenant Workspace"
+sidebarTitle: "Create Tenant"
+description: "Create a new Tevet-7 tenant workspace, become its first admin, and receive a fresh JWT scoped to that tenant — all in a single request."
+---
+
+Creating a tenant provisions a new isolated workspace on Tevet-7. The authenticated user automatically becomes the tenant's first admin member. The response includes a fresh JWT already scoped to the new tenant so you can immediately call `/api/chat` and other tenant-scoped endpoints without an extra activate round-trip.
+
+After creation, the tenant is not yet connected to a data source. Complete the [Onboarding wizard](/api/tenants/onboarding) to connect your data, detect your schema, configure roles, and flip the workspace to active.
+
+## Request
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <token>` — a valid Tevet-7 JWT for the user creating the workspace.
+</ParamField>
+
+**`POST /api/tenants`**
+
+```
+Content-Type: application/json
+```
+
+### Body Parameters
+
+<ParamField body="name" type="string" required>
+  Display name for the workspace. Shown in the tenant switcher and admin UI. Maximum 200 characters. Example: `"Fresh Logistics"`.
+</ParamField>
+
+<ParamField body="slug" type="string" required>
+  URL-safe identifier for the tenant. Must be unique across the platform. Pattern: `^[a-z0-9][a-z0-9-]*$` (lowercase letters, digits, and hyphens; must start with a letter or digit). Maximum 64 characters. Example: `"fresh-logistics"`.
+</ParamField>
+
+---
+
+## Response
+
+<ResponseField name="tenant" type="object">
+  The newly created tenant object.
+
+  <Expandable title="tenant fields">
+    <ResponseField name="tenant.id" type="string">
+      Internal tenant identifier. This is the `tenant_id` you pass to all tenant-scoped endpoints.
+    </ResponseField>
+    <ResponseField name="tenant.name" type="string">
+      Display name as provided in the request.
+    </ResponseField>
+    <ResponseField name="tenant.slug" type="string">
+      URL-safe slug as provided in the request.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="membership" type="object">
+  Your membership record in the new tenant.
+
+  <Expandable title="membership fields">
+    <ResponseField name="membership.role" type="string">
+      Always `"admin"` — the creator is automatically the first admin.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  A new JWT with this tenant's context embedded (`tenant_id`, `role: "admin"`, `producer_id: null`). Use this token for all subsequent requests to this workspace.
+</ResponseField>
+
+---
+
+## Errors
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | The `slug` does not match the required pattern (`^[a-z0-9][a-z0-9-]*$`), or `name` is empty. |
+| `409`  | The `slug` is already taken by another tenant. Choose a different slug. |
+| `401`  | Missing or invalid `Authorization` header. |
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Fresh Logistics",
+    "slug": "fresh-logistics"
+  }'
+```
+
+### Response
+
+```json
+{
+  "tenant": {
+    "id": "fresh-logistics",
+    "name": "Fresh Logistics",
+    "slug": "fresh-logistics"
+  },
+  "membership": {
+    "role": "admin"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZW5hbnRfaWQiOiJmcmVzaC1sb2dpc3RpY3MiLCJyb2xlIjoiYWRtaW4iLCJwcm9kdWNlcl9pZCI6bnVsbH0..."
+}
+```
+
+---
+
+## Next Steps
+
+Once you have the tenant token, proceed to the [Onboarding API](/api/tenants/onboarding) to connect a data source and configure your schema before calling `/api/chat`.

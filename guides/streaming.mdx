@@ -1,0 +1,159 @@
+---
+title: "Stream AI Agent Responses with Server-Sent Events (SSE)"
+sidebarTitle: "Streaming"
+description: "Use POST /api/chat/stream to receive the agent's answer progressively via SSE, showing step-by-step progress and word-by-word text as it arrives."
+---
+
+Instead of waiting for the full answer before displaying anything, the streaming endpoint delivers the agent's response progressively using Server-Sent Events (SSE). Your UI can show progress steps as the agent works, then stream the answer word-by-word — giving users immediate feedback that the system is active.
+
+## Endpoint
+
+```
+POST /api/chat/stream
+```
+
+**Required header:** `Authorization: Bearer <token>`
+
+The request body is identical to [`POST /api/chat`](/guides/chat). Pass `message`, and optionally `conversation_id` and `history`.
+
+## Response headers
+
+The server sets the following headers on a successful stream response:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `text/event-stream` |
+| `Cache-Control` | `no-cache` |
+| `Connection` | `keep-alive` |
+| `X-Accel-Buffering` | `no` |
+
+## SSE event types
+
+Each event is delivered as a line beginning with `data: ` followed by a JSON object. There are four event types:
+
+### `step`
+
+An agent progress update. Emitted as the agent moves through its reasoning phases — connecting to the database, analysing the question, generating SQL, and so on.
+
+```json
+{ "type": "step", "title": "Connexion aux données…" }
+```
+
+### `chunk`
+
+A word or short fragment of the answer text. Collect these in order to build the full answer string progressively.
+
+```json
+{ "type": "chunk", "content": "Vos " }
+```
+
+### `done`
+
+The final event. Contains the complete response envelope — the same object you would receive from `POST /api/chat`. Use the data from this event for any post-processing (charts, sources, token counts, etc.).
+
+```json
+{
+  "type": "done",
+  "response": {
+    "answer": "Vos 3 premiers produits sont…",
+    "sql": "SELECT ...",
+    "chart": { "type": "bar", "labels": [...], "data": [...] },
+    "tokens_in": 290,
+    "tokens_out": 74,
+    "latency_ms": 510,
+    "tool_calls": ["sql_read"],
+    "refused": false,
+    "conversation_id": "conv_xyz789"
+  }
+}
+```
+
+### `error`
+
+Emitted if an unrecoverable error occurs during the stream. The stream ends after this event.
+
+```json
+{ "type": "error", "message": "auth required" }
+```
+
+## TypeScript example
+
+The example below uses the Fetch API with a `ReadableStream` reader, which works in both browser and Node.js environments.
+
+```typescript
+const response = await fetch('/api/chat/stream', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ message: 'What are my top products?' }),
+});
+
+const reader = response.body!.getReader();
+const decoder = new TextDecoder();
+let answer = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+
+    const event = JSON.parse(line.slice(6));
+
+    if (event.type === 'step') {
+      console.log('Agent step:', event.title);
+    }
+
+    if (event.type === 'chunk') {
+      answer += event.content;
+      // Update your UI with the partial answer here
+    }
+
+    if (event.type === 'done') {
+      console.log('Full response:', event.response);
+      // Use event.response.chart, event.response.sources, etc.
+    }
+
+    if (event.type === 'error') {
+      console.error('Stream error:', event.message);
+    }
+  }
+}
+```
+
+## curl example
+
+Use the `-N` flag to disable buffering so SSE events print as they arrive:
+
+```bash
+curl -N -X POST https://your-tenant.tevet7.com/api/chat/stream \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message": "What are my top products this week?"}'
+```
+
+You will see output like:
+
+```
+data: {"type":"step","title":"Connexion aux données…"}
+
+data: {"type":"step","title":"Analyse de la question…"}
+
+data: {"type":"chunk","content":"Vos "}
+
+data: {"type":"chunk","content":"3 "}
+
+data: {"type":"chunk","content":"premiers "}
+
+data: {"type":"done","response":{...}}
+```
+
+<Tip>
+  Collect `chunk` events to build a live preview of the answer text, but always wait for the `done` event before using structured data like `chart`, `sources`, `forecast_predictions`, or `conversation_id`. Those fields are only present in the full envelope delivered with `done.response`.
+</Tip>

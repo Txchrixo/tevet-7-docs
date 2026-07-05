@@ -1,0 +1,73 @@
+---
+title: "Configure Your AI Agent's LLM Provider and Fallback Chain"
+sidebarTitle: "LLM Providers"
+description: "Configure Groq, DeepSeek, OpenRouter, or Gemini for your AI agent — Tevet-7 tries each provider in order and falls back if one fails."
+---
+
+Tevet-7 supports four LLM providers in a priority-ordered fallback chain. When the agent needs to answer a question, it tries Groq first. If Groq is unavailable or returns an error, it falls back to DeepSeek, then OpenRouter, then Gemini. This chain runs automatically — you don't need to handle failover in your code. If every provider fails, the agent falls back to its built-in rule-based SQL generator so a response is always produced.
+
+<Note>
+  At least one provider API key is required to enable LLM-powered natural-language responses. Without any key, the agent operates in rule-based fallback mode only.
+</Note>
+
+---
+
+## Provider reference
+
+| Priority | Provider | Env var | Default model | Notes |
+|---|---|---|---|---|
+| 1 — Primary | **Groq** | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | Fast inference, generous free tier (14,400 req/day). Best for development. |
+| 2 — Backup | **DeepSeek** | `DEEPSEEK_API_KEY` | `deepseek-chat` | High-quality reasoning, paid. Good production backup. |
+| 3 — Tertiary | **OpenRouter** | `OPENAI_API_KEY` + `LLM_BASE_URL` | `meta-llama/llama-3.3-70b-instruct:free` | Access free models via the `:free` suffix. Set `LLM_BASE_URL=https://openrouter.ai/api/v1`. |
+| 4 — Last resort | **Gemini** | `GEMINI_API_KEY` | `gemini-2.0-flash-001` | Google AI Studio free tier. No credit card required to get started. |
+
+---
+
+## Configuration
+
+Add the keys for the providers you want to activate to your `.env` file. You can configure one provider or all four — the fallback chain only includes providers whose keys are present and non-empty.
+
+```bash
+# ── Primary: Groq ────────────────────────────────────────────
+GROQ_API_KEY=gsk_your_groq_key_here
+# GROQ_MODEL=llama-3.3-70b-versatile   # optional override
+
+# ── Backup: DeepSeek ─────────────────────────────────────────
+DEEPSEEK_API_KEY=your_deepseek_key_here
+# DEEPSEEK_MODEL=deepseek-chat          # optional override
+
+# ── Tertiary: OpenRouter ──────────────────────────────────────
+OPENAI_API_KEY=sk-or-your_openrouter_key_here
+LLM_BASE_URL=https://openrouter.ai/api/v1
+# LLM_FALLBACK_MODELS=meta-llama/llama-3.3-70b-instruct:free
+
+# ── Last resort: Gemini ───────────────────────────────────────
+GEMINI_API_KEY=your_gemini_key_here
+# GEMINI_MODEL=gemini-2.0-flash-001     # optional override
+```
+
+---
+
+## LLM response caching
+
+To reduce cost and latency on repeated queries, Tevet-7 caches LLM responses for **1 hour by default**. If two users ask an identical question within that window, the second request is served from the cache at zero token cost.
+
+You can adjust the TTL with `LLM_CACHE_TTL_SECONDS`:
+
+```bash
+LLM_CACHE_TTL_SECONDS=3600   # 1 hour (default)
+```
+
+Set it to `0` to disable caching entirely (useful in development when you're iterating on prompt behavior).
+
+---
+
+## Rule-based fallback
+
+If every configured LLM provider fails — for example during a provider outage — the agent automatically falls back to a rule-based SQL generator. The rule-based engine handles the most common intents (`top_products`, `weekly_sales`, `stock_shortfall`, `net_revenue`) without requiring any LLM call. The agent will always produce a response; it will never return an empty error to your users.
+
+---
+
+<Tip>
+  Start with Groq during development. It offers a fast inference speed, a 14,400 request-per-day free tier, and native function-calling support — everything you need to get the agent working before committing to a paid provider.
+</Tip>

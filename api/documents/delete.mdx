@@ -1,0 +1,71 @@
+---
+title: "DELETE /api/documents/{id} — Remove a Document Permanently"
+sidebarTitle: "Delete Document"
+description: "Permanently remove a document and all its indexed chunks from your tenant's knowledge base. The agent will no longer retrieve that content."
+---
+
+Use this endpoint to remove a document from your tenant's knowledge base. Deleting a document removes the document record itself, all of its associated text chunks, and all search index entries — the agent will no longer retrieve content from that document in future conversations.
+
+## Endpoint
+
+```
+DELETE /api/documents/{id}
+```
+
+**Authorization:** `Bearer <token>`
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the document to delete. You can find this value in the response from [Upload Document](/api/documents/upload) or [List Documents](/api/documents/list).
+</ParamField>
+
+---
+
+## Response
+
+A successful deletion returns `200 OK` with the following fields:
+
+<ResponseField name="deleted" type="boolean">
+  Always `true` when the deletion succeeds.
+</ResponseField>
+
+<ResponseField name="document_id" type="integer">
+  The ID of the document that was deleted, echoed back for confirmation.
+</ResponseField>
+
+---
+
+## Error Responses
+
+| Status | Reason |
+|--------|--------|
+| `404`  | No document with the given `id` exists in the tenant's knowledge base. |
+| `401`  | Missing or invalid Bearer token. |
+
+---
+
+<Warning>
+  Deletion is permanent and cannot be undone. Once a document is removed, its text and all indexed chunks are gone. If you need the content in the knowledge base again, you must re-upload the document from scratch.
+</Warning>
+
+---
+
+## Example
+
+```bash
+# Delete document with ID 42
+curl -X DELETE https://your-host/api/documents/42 \
+  -H "Authorization: Bearer <token>"
+```
+
+### Example response
+
+```json
+{
+  "deleted": true,
+  "document_id": 42
+}
+```

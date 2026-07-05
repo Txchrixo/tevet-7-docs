@@ -1,0 +1,119 @@
+---
+title: "GET /api/auth/me — Current User and Tenant Memberships"
+sidebarTitle: "Me"
+description: "Retrieve the currently authenticated user's profile and a list of all their tenant memberships, including role and active status for each tenant."
+---
+
+Use this endpoint to look up the user associated with the JWT in your `Authorization` header. The response includes the user's profile and the full list of their tenant memberships, making it ideal for two common tasks: validating that a stored token is still active, and populating a tenant switcher UI that lets users move between workspaces.
+
+## Request
+
+```
+GET /api/auth/me
+Authorization: Bearer <token>
+```
+
+No request body or query parameters are required.
+
+## Response
+
+<ResponseField name="user" type="object">
+  The authenticated user's profile.
+
+  <Expandable title="user fields">
+    <ResponseField name="user.id" type="integer">
+      Unique numeric identifier for the user.
+    </ResponseField>
+
+    <ResponseField name="user.email" type="string">
+      The user's email address.
+    </ResponseField>
+
+    <ResponseField name="user.name" type="string">
+      The user's display name.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="memberships" type="array">
+  All tenant memberships for this user. Each element describes one tenant the user belongs to.
+
+  <Expandable title="membership fields">
+    <ResponseField name="tenant_id" type="string">
+      The tenant's unique identifier (the slug used to create the workspace, e.g. `"drive-producteur"`).
+    </ResponseField>
+
+    <ResponseField name="name" type="string">
+      The tenant's display name.
+    </ResponseField>
+
+    <ResponseField name="slug" type="string">
+      The tenant's URL-friendly identifier (e.g. `drive-producteur`).
+    </ResponseField>
+
+    <ResponseField name="role" type="string">
+      The user's role within this tenant — for example `admin` or `producer`.
+    </ResponseField>
+
+    <ResponseField name="producer_id" type="integer | null">
+      The producer record linked to this membership, or `null` if the role has no producer association.
+    </ResponseField>
+
+    <ResponseField name="is_demo" type="boolean">
+      `true` if this is a demo tenant. Use this to show a demo banner and disable destructive actions.
+    </ResponseField>
+
+    <ResponseField name="is_active" type="boolean">
+      `true` if this is the user's currently active membership. Only one membership can be active at a time.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Common Use Cases
+
+- **Token validation** — call this endpoint on app load. If you receive `401`, the token has expired or been revoked; redirect the user to `/login`.
+- **Tenant switcher** — render the `memberships` array as a list of workspaces the user can switch between. Call `POST /api/tenants/{id}/activate` to change the active tenant.
+- **Role checks** — read the `role` field of the active membership to decide which UI elements to show.
+
+## Errors
+
+| Code | Cause |
+|---|---|
+| `401 Unauthorized` | The Bearer token is missing, malformed, or expired. |
+
+## Example
+
+```bash
+curl -s https://your-tevet7-host/api/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+```json
+{
+  "user": {
+    "id": 7,
+    "email": "alice@example.com",
+    "name": "Alice Martin"
+  },
+  "memberships": [
+    {
+      "tenant_id": "drive-producteur",
+      "name": "Drive Producteur",
+      "slug": "drive-producteur",
+      "role": "admin",
+      "producer_id": null,
+      "is_demo": false,
+      "is_active": true
+    },
+    {
+      "tenant_id": "acme-corp",
+      "name": "Acme Corp",
+      "slug": "acme-corp",
+      "role": "producer",
+      "producer_id": 12,
+      "is_demo": false,
+      "is_active": false
+    }
+  ]
+}
+```

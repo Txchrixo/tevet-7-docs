@@ -1,0 +1,219 @@
+---
+title: "Create and Manage Tevet-7 Workspaces, Members, and Roles"
+sidebarTitle: "Workspaces"
+description: "Create and switch between isolated Tevet-7 workspaces, invite team members, assign roles, and control row-level data access with producer scopes."
+---
+
+In Tevet-7, a **tenant** is an isolated workspace that owns its own data connector, document store, and member roster. Every API call that touches data (chat, onboarding, schema) is scoped to a single tenant. A user can belong to multiple tenants and switch between them at any time by activating the one they want to work in.
+
+<Note>
+  A freshly created account has no tenant. You must create a new workspace or be added to an existing one before you can query data. Until then, your JWT carries `tenant_id: null` and chat requests will be rejected.
+</Note>
+
+## Create a workspace
+
+Send `POST /api/tenants` with a display name and a URL-safe slug. You become the admin of the new workspace automatically, and the response includes a fresh JWT already scoped to it — no extra activation step needed.
+
+<Info>
+  The slug must match `^[a-z0-9][a-z0-9-]*$`: lowercase letters, digits, and hyphens only, starting with a letter or digit. Examples: `acme-corp`, `logistics2024`, `my-team`. Slugs are globally unique.
+</Info>
+
+```bash
+curl -s -X POST https://your-host/api/tenants \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Acme Corp",
+    "slug": "acme-corp"
+  }'
+```
+
+**Response**
+
+```json
+{
+  "tenant": {
+    "id": "acme-corp",
+    "name": "Acme Corp",
+    "slug": "acme-corp"
+  },
+  "membership": {
+    "tenant_id": "acme-corp",
+    "role": "admin",
+    "producer_id": null,
+    "is_active": true
+  },
+  "token": "<new-jwt-scoped-to-acme-corp>"
+}
+```
+
+<Warning>
+  Replace your stored token with the one returned here. All subsequent requests to tenant-scoped endpoints must use a JWT that carries the correct `tenant_id`.
+</Warning>
+
+## List your workspaces
+
+Retrieve every workspace you belong to. The response is useful for building a workspace switcher in your own UI.
+
+```bash
+curl -s https://your-host/api/tenants/mine \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "count": 2,
+  "tenants": [
+    {
+      "tenant_id": "acme-corp",
+      "name": "Acme Corp",
+      "slug": "acme-corp",
+      "role": "admin",
+      "producer_id": null,
+      "is_demo": false,
+      "is_active": true
+    },
+    {
+      "tenant_id": "beta-workspace",
+      "name": "Beta Workspace",
+      "slug": "beta-workspace",
+      "role": "producer",
+      "producer_id": 42,
+      "is_demo": false,
+      "is_active": false
+    }
+  ]
+}
+```
+
+## Switch active workspace
+
+Activating a tenant re-scopes your session to that workspace. The response includes a new JWT — use it for all subsequent calls.
+
+```bash
+curl -s -X POST https://your-host/api/tenants/beta-workspace/activate \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "membership": {
+    "tenant_id": "beta-workspace",
+    "role": "producer",
+    "producer_id": 42,
+    "is_active": true
+  },
+  "token": "<new-jwt-scoped-to-beta-workspace>"
+}
+```
+
+## Get workspace details and member list
+
+Retrieve the full member roster for a workspace. You must be a member yourself to call this endpoint.
+
+```bash
+curl -s https://your-host/api/tenants/acme-corp \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "tenant": {
+    "id": "acme-corp",
+    "name": "Acme Corp",
+    "slug": "acme-corp"
+  },
+  "members": [
+    {
+      "user_id": 7,
+      "email": "you@example.com",
+      "name": "Your Name",
+      "role": "admin",
+      "producer_id": null
+    },
+    {
+      "user_id": 12,
+      "email": "alice@example.com",
+      "name": "Alice",
+      "role": "producer",
+      "producer_id": 42
+    }
+  ]
+}
+```
+
+## Add a team member
+
+Admins can invite any existing Tevet-7 user to a workspace by email. The new member must already have a Tevet-7 account.
+
+<ParamField body="email" type="string" required>
+  The email address of the user to add. They must already have a Tevet-7 account.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Either `producer` (row-level filtered access) or `admin` (full access, no row-level filter).
+</ParamField>
+
+<ParamField body="producer_id" type="integer">
+  The row-level scope value for `producer` members. The agent automatically filters query results to rows where the scope column equals this value. Set to `null` for `admin` members.
+</ParamField>
+
+```bash
+curl -s -X POST https://your-host/api/tenants/acme-corp/members \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "alice@example.com",
+    "role": "producer",
+    "producer_id": 42
+  }'
+```
+
+**Response**
+
+```json
+{
+  "membership": {
+    "tenant_id": "acme-corp",
+    "user_id": 12,
+    "role": "producer",
+    "producer_id": 42,
+    "is_active": false
+  }
+}
+```
+
+<Note>
+  Newly added members have `is_active: false`. They must call `POST /api/tenants/{tenant_id}/activate` to start using the workspace.
+</Note>
+
+## Remove a team member
+
+Admins can remove any member from a workspace. You cannot remove the last admin — a workspace must always have at least one.
+
+```bash
+curl -s -X DELETE https://your-host/api/tenants/acme-corp/members/12 \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "removed": true,
+  "user_id": 12
+}
+```
+
+## Role reference
+
+| Role | Row-level filter | Can manage members | Notes |
+|---|---|---|---|
+| `admin` | None — sees all rows | Yes | `producer_id` is always `null` |
+| `producer` | Filtered by `producer_id` | No | `producer_id` must be set |

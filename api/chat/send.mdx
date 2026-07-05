@@ -1,0 +1,264 @@
+---
+title: "POST /api/chat — Submit a Natural Language Query"
+sidebarTitle: "Send Message"
+description: "Send a natural-language message to the Tevet-7 AI agent and receive a structured response with an answer, SQL, chart, citations, and a full audit trail."
+---
+
+The `/api/chat` endpoint is the core of the Tevet-7 platform. You send a plain-language question, and the agent queries your tenant's connected data source, applies row-level security scoping, and returns a structured envelope containing the answer, the SQL it generated, an optional chart specification, RAG citations, token usage, and a full step-by-step audit trail. The endpoint always returns HTTP 200 — check the `refused` flag in the response body to detect blocked or errored requests.
+
+## Request
+
+<ParamField header="Authorization" type="string" required>
+  A valid JWT issued by Tevet-7. Format: `Bearer <token>`. The token encodes your `tenant_id`, `role`, and `producer_id` — body identity fields are ignored when this header is present.
+</ParamField>
+
+**`POST /api/chat`**
+
+```
+Content-Type: application/json
+```
+
+### Body Parameters
+
+<ParamField body="message" type="string" required>
+  The natural-language question you want to ask. Maximum 4 000 characters. Examples: `"What were my top 5 products last month?"`, `"Show me pending orders for shop 12."`.
+</ParamField>
+
+<ParamField body="conversation_id" type="string">
+  The `conversation_id` returned by a previous `/api/chat` response. Pass this to continue a conversation and allow the agent to use prior context (e.g. follow-up questions like *"And the month before?"*).
+</ParamField>
+
+<ParamField body="history" type="array">
+  Explicit conversation history to provide to the LLM. Each element must be an object with `role` (`"user"` or `"assistant"`) and `content` (string). Use this when you manage conversation state client-side and do not rely on server-side persistence.
+
+  ```json
+  [
+    { "role": "user",      "content": "Top 5 products this week?" },
+    { "role": "assistant", "content": "Here are your top 5 products…" }
+  ]
+  ```
+</ParamField>
+
+<ParamField body="identity_id" type="string" deprecated>
+  **Deprecated — do not use in new integrations.** Legacy body-path identity handle (e.g. `"marie"`). Ignored when an `Authorization: Bearer` header is present.
+</ParamField>
+
+<ParamField body="producer_id" type="integer" deprecated>
+  **Deprecated.** Row-level scope value for the legacy body path. Ignored when a JWT is present.
+</ParamField>
+
+<ParamField body="role" type="string" deprecated>
+  **Deprecated.** Caller role (`"producer"` or `"admin"`) for the legacy body path. Ignored when a JWT is present.
+</ParamField>
+
+---
+
+## Response
+
+The response is always HTTP `200 OK`. All error conditions (refusals, onboarding blocks, unhandled exceptions) are encoded in the JSON body — the frontend follows a single success path.
+
+### Response Fields
+
+<ResponseField name="answer" type="string">
+  The agent's natural-language answer to your question.
+</ResponseField>
+
+<ResponseField name="sql" type="string | null">
+  The SQL query the agent executed against your data source, or `null` if no SQL was run (e.g. for documentary/RAG questions).
+</ResponseField>
+
+<ResponseField name="scope_clause" type="string | null">
+  The row-level security clause injected into the SQL (e.g. `"WHERE producer_id = 42"`), or `null` for admin-role queries.
+</ResponseField>
+
+<ResponseField name="chart" type="object | null">
+  A chart specification the frontend can render directly, or `null` if the response is not visual.
+
+  <Expandable title="chart fields">
+    <ResponseField name="chart.type" type="string">
+      Chart type: `"bar"`, `"line"`, `"pie"`, etc.
+    </ResponseField>
+    <ResponseField name="chart.labels" type="array">
+      X-axis or slice labels (array of strings).
+    </ResponseField>
+    <ResponseField name="chart.data" type="array">
+      Numeric data series corresponding to `labels`.
+    </ResponseField>
+    <ResponseField name="chart.title" type="string">
+      Human-readable chart title.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tokens_in" type="integer">
+  Number of tokens in the prompt sent to the LLM.
+</ResponseField>
+
+<ResponseField name="tokens_out" type="integer">
+  Number of tokens in the LLM's completion.
+</ResponseField>
+
+<ResponseField name="latency_ms" type="integer">
+  Total wall-clock latency for this request, in milliseconds.
+</ResponseField>
+
+<ResponseField name="tool_calls" type="array">
+  Ordered list of tool invocations made during the agent run.
+
+  <Expandable title="tool_calls item fields">
+    <ResponseField name="tool_calls[].name" type="string">
+      Tool name (e.g. `"sql_read"`, `"rag_search"`, `"forecast"`).
+    </ResponseField>
+    <ResponseField name="tool_calls[].latency_ms" type="integer">
+      Time this tool call took, in milliseconds.
+    </ResponseField>
+    <ResponseField name="tool_calls[].success" type="boolean">
+      Whether the tool call completed without error.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="steps" type="array">
+  Human-readable audit trail of the agent's reasoning steps.
+
+  <Expandable title="steps item fields">
+    <ResponseField name="steps[].index" type="integer">
+      Step sequence number (0-based).
+    </ResponseField>
+    <ResponseField name="steps[].title" type="string">
+      Short label for the step (e.g. `"Generating SQL…"`).
+    </ResponseField>
+    <ResponseField name="steps[].detail" type="string">
+      Detailed description of what happened in this step.
+    </ResponseField>
+    <ResponseField name="steps[].status" type="string">
+      `"ok"`, `"warning"`, or `"error"`.
+    </ResponseField>
+    <ResponseField name="steps[].duration_ms" type="integer">
+      Duration of the step in milliseconds.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="security_checks" type="array">
+  List of security validations performed on the generated SQL (e.g. scope injection, read-only enforcement). Each item is an object describing the check name and outcome.
+</ResponseField>
+
+<ResponseField name="refused" type="boolean">
+  `true` if the agent declined to answer (guardrail block, onboarding incomplete, unhandled error). Always check this flag — the HTTP status is always `200`.
+</ResponseField>
+
+<ResponseField name="tables_touched" type="array">
+  List of table names the agent queried (array of strings).
+</ResponseField>
+
+<ResponseField name="sources" type="array">
+  RAG citations retrieved from the tenant's document store.
+
+  <Expandable title="sources item fields">
+    <ResponseField name="sources[].title" type="string">
+      Title of the source document or chunk.
+    </ResponseField>
+    <ResponseField name="sources[].excerpt" type="string">
+      Relevant text excerpt from the document.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="ops_analysis" type="object | null">
+  Operational analysis object returned for ops-intent queries, or `null`.
+</ResponseField>
+
+<ResponseField name="forecast_predictions" type="array | null">
+  ML shortage predictions, populated for forecast-intent queries.
+
+  <Expandable title="forecast_predictions item fields">
+    <ResponseField name="forecast_predictions[].product_name" type="string">
+      Name of the product.
+    </ResponseField>
+    <ResponseField name="forecast_predictions[].shortage_probability" type="number">
+      Predicted probability of a stock shortage (0–1).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="trace_id" type="string | null">
+  Unique trace identifier for this request. Use this ID to look up the full trace via `GET /api/traces/{trace_id}`.
+</ResponseField>
+
+<ResponseField name="conversation_id" type="string | null">
+  Server-assigned conversation identifier. Pass this value as `conversation_id` in your next request to continue the conversation.
+</ResponseField>
+
+<ResponseField name="not_onboarded" type="boolean">
+  Present and `true` when the tenant has not yet completed the onboarding wizard. In this case `refused` will also be `true` and `answer` will contain a prompt to complete onboarding. See the [Onboarding API](/api/tenants/onboarding).
+</ResponseField>
+
+---
+
+## Rate Limiting
+
+The endpoint enforces a limit of **120 requests per minute per tenant**. When the limit is exceeded the API returns HTTP `429` with a `Retry-After` header indicating the number of seconds to wait before retrying.
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 14
+```
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -X POST https://api.tevet7.com/api/chat \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What were my top 5 products by revenue last month?",
+    "conversation_id": null
+  }'
+```
+
+### Response
+
+```json
+{
+  "answer": "Your top 5 products by revenue last month were: Tomates anciennes (€1 240), Fromage de chèvre (€980), Miel de lavande (€830), Courgettes bio (€710), and Œufs fermiers (€650).",
+  "sql": "SELECT p.name, SUM(oi.line_total_eur) AS revenue FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.producer_id = 42 AND oi.created_at >= date_trunc('month', now() - interval '1 month') AND oi.created_at < date_trunc('month', now()) GROUP BY p.name ORDER BY revenue DESC LIMIT 5",
+  "scope_clause": "WHERE producer_id = 42",
+  "chart": {
+    "type": "bar",
+    "labels": ["Tomates anciennes", "Fromage de chèvre", "Miel de lavande", "Courgettes bio", "Œufs fermiers"],
+    "data": [1240, 980, 830, 710, 650],
+    "title": "Top 5 Products by Revenue — Last Month"
+  },
+  "tokens_in": 512,
+  "tokens_out": 148,
+  "latency_ms": 1023,
+  "tool_calls": [
+    { "name": "sql_read",    "latency_ms": 45,  "success": true },
+    { "name": "rag_search",  "latency_ms": 12,  "success": true }
+  ],
+  "steps": [
+    { "index": 0, "title": "Classifying intent",  "detail": "Intent: top_products",         "status": "ok", "duration_ms": 8  },
+    { "index": 1, "title": "Generating SQL",       "detail": "LLM produced SELECT statement", "status": "ok", "duration_ms": 340 },
+    { "index": 2, "title": "Executing query",      "detail": "5 rows returned",               "status": "ok", "duration_ms": 45  },
+    { "index": 3, "title": "Building answer",      "detail": "Chart + prose generated",       "status": "ok", "duration_ms": 620 }
+  ],
+  "security_checks": [
+    { "check": "scope_injection",  "passed": true },
+    { "check": "read_only",        "passed": true },
+    { "check": "table_allowlist",  "passed": true }
+  ],
+  "refused": false,
+  "tables_touched": ["order_items", "products"],
+  "sources": [],
+  "ops_analysis": null,
+  "forecast_predictions": null,
+  "trace_id": "trc_01hx9k2p3qvz4n8c7b5d6e0fa",
+  "conversation_id": "conv_01hx9k2p3qvz4n8c7b5d6e0fb",
+  "not_onboarded": false
+}
+```

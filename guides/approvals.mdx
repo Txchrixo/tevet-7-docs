@@ -1,0 +1,181 @@
+---
+title: "Human-in-the-Loop Approvals for Onboarding Decisions"
+sidebarTitle: "Approvals"
+description: "Let your admin team review AI-generated onboarding recommendations before they take effect — every decision is human-controlled and fully audited."
+---
+
+The Ops Copilot feature gives your admin team a review queue for every onboarding dossier the AI agent evaluates. The agent reads the submitted documents, runs its checks, and proposes a decision — but it never acts alone. Your team reviews the analysis, agrees with it, rejects it, or overrides it entirely. The human decision always wins.
+
+<Note>
+  Only tenant admins can access the approvals endpoints. Requests from producer roles return HTTP 403.
+</Note>
+
+## List pending approvals
+
+```bash
+GET /api/approvals
+```
+
+Returns all approval requests for your tenant, ordered by creation date. By default only `pending` requests are returned.
+
+**Query parameters**
+
+<ParamField query="status" type="string" default="pending">
+  Filter by status. Accepted values: `pending`, `approved`, `rejected`, `overridden`, `all`.
+</ParamField>
+
+**Example**
+
+```bash
+curl -X GET "https://your-tevet7-instance.com/api/approvals?status=pending" \
+  -H "Authorization: Bearer <your_admin_token>"
+```
+
+**Response shape** — array of approval summaries:
+
+<ResponseField name="id" type="integer">
+  Approval request ID.
+</ResponseField>
+<ResponseField name="onboarding_id" type="integer">
+  The linked producer onboarding dossier ID.
+</ResponseField>
+<ResponseField name="legal_name" type="string">
+  Legal name of the producer under review.
+</ResponseField>
+<ResponseField name="siret" type="string">
+  SIRET number declared by the producer.
+</ResponseField>
+<ResponseField name="proposed_decision" type="string">
+  The agent's proposal: `approve`, `reject`, or `request_info`.
+</ResponseField>
+<ResponseField name="confidence" type="number">
+  Confidence score (0–1) attached to the agent's proposal.
+</ResponseField>
+<ResponseField name="status" type="string">
+  Current status of the approval request: `pending`, `approved`, `rejected`, or `overridden`.
+</ResponseField>
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the request was created.
+</ResponseField>
+<ResponseField name="agent_analysis" type="object">
+  Parsed agent analysis including individual check results — returned inline so you can render the full checklist without a second request.
+</ResponseField>
+
+---
+
+## Get approval detail
+
+```bash
+GET /api/approvals/{id}
+```
+
+Returns the full record for a single approval request, including the parsed `agent_analysis` object and the complete onboarding dossier (declared fields, document flags, and submission metadata).
+
+```bash
+curl -X GET "https://your-tevet7-instance.com/api/approvals/42" \
+  -H "Authorization: Bearer <your_admin_token>"
+```
+
+The `agent_analysis` field in the detail response exposes the agent's reasoning at the check level:
+
+<ResponseField name="proposed_decision" type="string">
+  `approve`, `reject`, or `request_info`.
+</ResponseField>
+<ResponseField name="confidence" type="number">
+  Confidence score (0–1).
+</ResponseField>
+<ResponseField name="checks" type="array">
+  Array of named checks, each with a `name` and a `pass` boolean (e.g. `siret_valid`, `rib_document_present`, `address_match`).
+</ResponseField>
+
+---
+
+## Make a decision
+
+```bash
+POST /api/approvals/{id}/decide
+```
+
+Close the loop on an approval request. This endpoint updates both the approval request record and the producer's onboarding dossier atomically — either both succeed or neither does.
+
+**Request body**
+
+<ParamField body="decision" type="string" required>
+  Your verdict:
+  - `"approve"` — you agree with the agent's proposal and validate the dossier.
+  - `"reject"` — you confirm that the producer should be refused.
+  - `"override"` — you flip the agent's proposal (e.g. agent said `reject`, you approve with conditions).
+</ParamField>
+
+<ParamField body="reason" type="string" required>
+  Human-readable explanation for your decision. Especially important for `override` — this text is stored in the audit trail and may be communicated to the producer.
+</ParamField>
+
+<ParamField body="decided_by" type="string" required>
+  Your email address or identity handle. Used to attribute the decision in the audit log and in observability traces.
+</ParamField>
+
+**Example — override a rejection**
+
+```bash
+curl -X POST "https://your-tevet7-instance.com/api/approvals/42/decide" \
+  -H "Authorization: Bearer <your_admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decision": "override",
+    "reason": "Producer provided updated certificate directly via email. Approving manually.",
+    "decided_by": "alice@yourcompany.com"
+  }'
+```
+
+**What happens atomically**
+
+| Decision | `approval_requests.status` | `producer_onboardings.status` |
+|---|---|---|
+| `approve` | `approved` | `approved` |
+| `reject` | `rejected` | `rejected` |
+| `override` (agent said `reject`) | `overridden` | `approved` |
+| `override` (agent said `approve`) | `overridden` | `rejected` |
+| `override` (agent said `request_info`) | `overridden` | `pending` |
+
+---
+
+## Re-run agent analysis
+
+```bash
+POST /api/approvals/analyze/{onboarding_id}
+```
+
+Triggers a fresh agent analysis on an existing onboarding dossier. Use this after a producer uploads corrected or missing documents — the agent re-runs all its checks and updates the corresponding approval request with the new `proposed_decision`, `confidence`, and `agent_analysis`.
+
+```bash
+curl -X POST "https://your-tevet7-instance.com/api/approvals/analyze/17" \
+  -H "Authorization: Bearer <your_admin_token>"
+```
+
+Returns the updated `OpsAnalysis` object and the `approval_id` that was refreshed.
+
+---
+
+## Decision workflow
+
+<Steps>
+  <Step title="List pending approvals">
+    Call `GET /api/approvals?status=pending` to see which dossiers are waiting for a human decision. Each item includes the agent's `proposed_decision` and `confidence` inline.
+  </Step>
+  <Step title="Review the detail">
+    Call `GET /api/approvals/{id}` to read the full agent analysis — individual check results, document flags, declared address vs. document address match, SIRET validity — alongside the complete onboarding dossier.
+  </Step>
+  <Step title="Override or approve">
+    Call `POST /api/approvals/{id}/decide` with your `decision`, a `reason`, and your `decided_by` identity. Use `"override"` when you disagree with the agent's proposal; use `"approve"` or `"reject"` when you agree.
+  </Step>
+  <Step title="Verify status">
+    Call `GET /api/approvals/{id}` again (or `GET /api/approvals?status=all`) to confirm the request shows your decision and that the onboarding dossier status has been updated to match.
+  </Step>
+</Steps>
+
+---
+
+<Info>
+  Every decision — including the human override — is recorded as a trace span under the `ops_approval_decision` operation. This gives you a complete audit trail linking the agent's original analysis to your final verdict. See [Observability](/guides/observability) for details on browsing traces.
+</Info>

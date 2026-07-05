@@ -1,0 +1,207 @@
+---
+title: "GET /api/approvals — List Pending Approval Requests"
+sidebarTitle: "List Approvals"
+description: "Retrieve AI-generated onboarding approval requests for your tenant, filtered by status, with full agent analysis included in each result."
+---
+
+Use these endpoints to inspect the AI-generated approval queue for your tenant. When a producer completes onboarding, the Ops Copilot agent analyses the dossier and raises an approval request with a proposed decision and a confidence score. You review this queue and then use the [Decide](/api/approvals/decide) endpoint to accept, reject, or override the agent's recommendation.
+
+<Note>
+  Approval endpoints require **admin role** access. Requests authenticated with a producer-role token will receive a `403` response. Ensure your Bearer token was issued with the `admin` role.
+</Note>
+
+---
+
+## List Approvals
+
+```
+GET /api/approvals
+```
+
+**Authorization:** `Bearer <token>` (admin role)
+
+### Query Parameters
+
+<ParamField query="status" type="string" default="pending">
+  Filter the results by approval status. Accepted values:
+
+  | Value | Description |
+  |-------|-------------|
+  | `pending` | Awaiting a human decision (default). |
+  | `approved` | The admin approved the agent's recommendation. |
+  | `rejected` | The admin confirmed the agent's rejection. |
+  | `overridden` | The admin overrode the agent's recommendation. |
+  | `all` | Return every approval regardless of status. |
+</ParamField>
+
+### Response
+
+<ResponseField name="count" type="integer">
+  Total number of approval requests returned.
+</ResponseField>
+
+<ResponseField name="approvals" type="array">
+  An array of approval request objects. Each object contains the following fields:
+
+  <ResponseField name="id" type="integer">
+    Unique approval request ID.
+  </ResponseField>
+
+  <ResponseField name="onboarding_id" type="integer">
+    The ID of the producer onboarding dossier this request is linked to.
+  </ResponseField>
+
+  <ResponseField name="request_type" type="string">
+    The category of this approval request (e.g. `"onboarding_analysis"`).
+  </ResponseField>
+
+  <ResponseField name="legal_name" type="string">
+    The producer's legal name as declared in the onboarding dossier.
+  </ResponseField>
+
+  <ResponseField name="siret" type="string">
+    The producer's SIRET number as declared in the onboarding dossier.
+  </ResponseField>
+
+  <ResponseField name="proposed_decision" type="string">
+    The Ops Copilot agent's recommendation: `"approve"`, `"reject"`, or `"request_info"`.
+  </ResponseField>
+
+  <ResponseField name="proposed_reason" type="string">
+    A human-readable explanation of why the agent made its recommendation.
+  </ResponseField>
+
+  <ResponseField name="confidence" type="float | null">
+    The agent's confidence score for its recommendation, on a scale of `0` to `1`. `null` if the agent did not return a confidence value.
+  </ResponseField>
+
+  <ResponseField name="status" type="string">
+    The current status of this approval request: `pending`, `approved`, `rejected`, or `overridden`.
+  </ResponseField>
+
+  <ResponseField name="decided_by" type="string | null">
+    The identity (email or ID) of the admin who made the final decision. `null` while still pending.
+  </ResponseField>
+
+  <ResponseField name="decided_at" type="string | null">
+    ISO 8601 timestamp of when the decision was recorded. `null` while still pending.
+  </ResponseField>
+
+  <ResponseField name="human_reason" type="string | null">
+    The reason text the admin submitted when deciding. `null` while still pending.
+  </ResponseField>
+
+  <ResponseField name="created_at" type="string">
+    ISO 8601 timestamp of when this approval request was created.
+  </ResponseField>
+
+  <ResponseField name="agent_analysis" type="object">
+    The structured output of the agent's analysis — parsed checks, issues found, and supporting evidence. This is included inline so your admin UI can render the agent's reasoning without a second request.
+  </ResponseField>
+
+  <ResponseField name="trace_id" type="string | null">
+    The trace ID for the agent's analysis run. Use this to cross-reference the decision in your observability dashboard.
+  </ResponseField>
+</ResponseField>
+
+### Example
+
+```bash
+# List all pending approvals (default)
+curl -X GET https://your-host/api/approvals \
+  -H "Authorization: Bearer <token>"
+
+# List all approvals regardless of status
+curl -X GET "https://your-host/api/approvals?status=all" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "count": 1,
+  "approvals": [
+    {
+      "id": 15,
+      "onboarding_id": 88,
+      "request_type": "onboarding_analysis",
+      "legal_name": "Ferme du Soleil SARL",
+      "siret": "83245678900012",
+      "proposed_decision": "approve",
+      "proposed_reason": "All required documents are present and the SIRET is valid.",
+      "confidence": 0.91,
+      "status": "pending",
+      "decided_by": null,
+      "decided_at": null,
+      "human_reason": null,
+      "created_at": "2024-11-01T08:00:00",
+      "agent_analysis": {
+        "siret_check": "pass",
+        "id_document": "present",
+        "rib_document": "present",
+        "address_match": "pass",
+        "professional_certificate": "valid"
+      },
+      "trace_id": "tr_01hx..."
+    }
+  ]
+}
+```
+
+---
+
+## Get Approval Detail
+
+Retrieve the full detail of a single approval request, including the complete onboarding dossier.
+
+```
+GET /api/approvals/{id}
+```
+
+**Authorization:** `Bearer <token>` (admin role)
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The approval request ID from the list endpoint.
+</ParamField>
+
+### Response
+
+The response has the same fields as a list item, plus a nested `onboarding` object containing the full dossier:
+
+<ResponseField name="approval" type="object">
+  The full approval request summary (same fields as in the list response).
+</ResponseField>
+
+<ResponseField name="agent_analysis" type="object">
+  Parsed agent analysis at the top level for convenient access.
+</ResponseField>
+
+<ResponseField name="onboarding" type="object">
+  The complete producer onboarding dossier, including:
+
+  <ResponseField name="id" type="integer">Onboarding record ID.</ResponseField>
+  <ResponseField name="tenant_id" type="string">Tenant this dossier belongs to.</ResponseField>
+  <ResponseField name="legal_name" type="string">Producer's legal name.</ResponseField>
+  <ResponseField name="siret" type="string">SIRET number.</ResponseField>
+  <ResponseField name="siret_valid" type="boolean">Whether the SIRET passed validation.</ResponseField>
+  <ResponseField name="email" type="string">Producer's contact email.</ResponseField>
+  <ResponseField name="phone" type="string">Producer's contact phone.</ResponseField>
+  <ResponseField name="declared_address" type="string">Address declared by the producer.</ResponseField>
+  <ResponseField name="document_address" type="string">Address extracted from the submitted documents.</ResponseField>
+  <ResponseField name="rib_document_present" type="boolean">Whether a RIB (bank details) document was submitted.</ResponseField>
+  <ResponseField name="id_document_present" type="boolean">Whether an identity document was submitted.</ResponseField>
+  <ResponseField name="professional_certificate_present" type="boolean">Whether a professional certificate was submitted.</ResponseField>
+  <ResponseField name="professional_certificate_expiry" type="string | null">Expiry date of the professional certificate, if present.</ResponseField>
+  <ResponseField name="submitted_at" type="string">ISO 8601 timestamp of dossier submission.</ResponseField>
+  <ResponseField name="status" type="string">Current onboarding status: `pending`, `approved`, or `rejected`.</ResponseField>
+  <ResponseField name="rejection_reason" type="string | null">Reason for rejection, if the dossier was rejected.</ResponseField>
+</ResponseField>
+
+### Example
+
+```bash
+# Get full detail for approval request 15
+curl -X GET https://your-host/api/approvals/15 \
+  -H "Authorization: Bearer <token>"
+```

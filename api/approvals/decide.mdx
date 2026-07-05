@@ -1,0 +1,239 @@
+---
+title: "POST /api/approvals/{id}/decide — Act on a Recommendation"
+sidebarTitle: "Decide"
+description: "Submit an approve, reject, or override decision on an AI recommendation, atomically updating both the approval record and the linked onboarding dossier."
+---
+
+Use this endpoint to act on the Ops Copilot agent's recommendation for a producer onboarding dossier. Your decision is recorded with a full audit trail and simultaneously updates both the approval request and the linked onboarding record in a single atomic transaction. If the agent's recommendation does not match your judgment, use the `"override"` decision to flip it and document your reasoning.
+
+## Endpoint
+
+```
+POST /api/approvals/{id}/decide
+```
+
+**Authorization:** `Bearer <token>` (admin role)
+
+**Content-Type:** `application/json`
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The approval request ID. Obtain this from the [List Approvals](/api/approvals/list) endpoint.
+</ParamField>
+
+---
+
+## Request Body
+
+<ParamField body="decision" type="string" required>
+  Your decision on the approval request. Accepted values:
+
+  | Value | Effect |
+  |-------|--------|
+  | `"approve"` | Validates the agent's `"approve"` recommendation and sets the onboarding status to `approved`. |
+  | `"reject"` | Confirms the agent's `"reject"` recommendation and sets the onboarding status to `rejected`. |
+  | `"override"` | Flips the agent's proposal: if the agent recommended `"reject"`, the onboarding is approved; if the agent recommended `"approve"`, the onboarding is rejected; if the agent recommended `"request_info"`, the onboarding remains `pending`. Use when your judgment differs from the agent's. |
+</ParamField>
+
+<ParamField body="reason" type="string" required>
+  A human-readable explanation for your decision. Maximum 2000 characters. This value is stored in `human_reason` on the approval record and appears in the audit trail. Especially important for `"override"` decisions — explain why you are departing from the agent's recommendation.
+</ParamField>
+
+<ParamField body="decided_by" type="string" required>
+  Your email address or identity string. Stored verbatim in the audit trail so decisions can be attributed to a specific admin. When authenticating via JWT, set this to your admin email.
+</ParamField>
+
+---
+
+## Response
+
+A successful decision returns `200 OK` with three top-level objects:
+
+<ResponseField name="approval" type="object">
+  The updated approval request summary, reflecting the new status.
+
+  <ResponseField name="status" type="string">
+    The new approval status: `approved`, `rejected`, or `overridden`.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="onboarding" type="object">
+  A summary of the linked onboarding dossier, reflecting the mirrored decision.
+
+  <ResponseField name="status" type="string">
+    The new onboarding status: `approved`, `rejected`, or `pending`. Override decisions mirror the flipped outcome — `approved` or `rejected` for most cases; `pending` when the agent's original proposal was `"request_info"`. The dossier itself is never left in an `overridden` state.
+  </ResponseField>
+
+  <ResponseField name="rejection_reason" type="string | null">
+    Populated with your `reason` text when `status` is `rejected`. `null` for approvals.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="decision_applied" type="object">
+  A summary of exactly what was written to the database.
+
+  <ResponseField name="approval_status" type="string">
+    The status recorded on the approval request.
+  </ResponseField>
+
+  <ResponseField name="onboarding_status" type="string">
+    The status recorded on the onboarding dossier.
+  </ResponseField>
+
+  <ResponseField name="decided_by" type="string">
+    The identity you supplied, echoed back.
+  </ResponseField>
+
+  <ResponseField name="decided_at" type="string">
+    ISO 8601 timestamp of when the decision was applied.
+  </ResponseField>
+
+  <ResponseField name="human_reason" type="string">
+    The reason text you supplied, echoed back.
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Error Responses
+
+| Status | Reason |
+|--------|--------|
+| `403`  | Your token does not carry admin role. |
+| `404`  | No approval request with the given `id` was found. |
+
+---
+
+## Examples
+
+### Approve a dossier
+
+```bash
+curl -X POST https://your-host/api/approvals/15/decide \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decision": "approve",
+    "reason": "All documents verified. SIRET matches registry.",
+    "decided_by": "admin@acme.com"
+  }'
+```
+
+### Override the agent's rejection
+
+```bash
+curl -X POST https://your-host/api/approvals/15/decide \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decision": "override",
+    "reason": "Producer provided updated professional certificate directly via email on 2024-11-05. Document verified offline — approving dossier manually.",
+    "decided_by": "admin@acme.com"
+  }'
+```
+
+### Example response
+
+```json
+{
+  "approval": {
+    "id": 15,
+    "onboarding_id": 88,
+    "legal_name": "Ferme du Soleil SARL",
+    "siret": "83245678900012",
+    "proposed_decision": "reject",
+    "proposed_reason": "Professional certificate is missing.",
+    "confidence": 0.87,
+    "status": "overridden",
+    "decided_by": "admin@acme.com",
+    "decided_at": "2024-11-05T11:22:00",
+    "human_reason": "Producer provided updated certificate directly via email on 2024-11-05.",
+    "trace_id": "tr_01hx..."
+  },
+  "onboarding": {
+    "id": 88,
+    "legal_name": "Ferme du Soleil SARL",
+    "siret": "83245678900012",
+    "status": "approved",
+    "rejection_reason": null
+  },
+  "decision_applied": {
+    "approval_status": "overridden",
+    "onboarding_status": "approved",
+    "decided_by": "admin@acme.com",
+    "decided_at": "2024-11-05T11:22:00",
+    "human_reason": "Producer provided updated certificate directly via email on 2024-11-05."
+  }
+}
+```
+
+<Tip>
+  Always include a clear, specific `reason` on `"override"` decisions — it is the only record of why the agent's recommendation was not followed. This text appears verbatim in the audit trail and may be referenced during compliance reviews.
+</Tip>
+
+---
+
+## Re-run Agent Analysis
+
+If a producer uploads new documents after the initial analysis (for example, a missing certificate was added), you can trigger a fresh agent analysis without creating a new approval request.
+
+```
+POST /api/approvals/analyze/{onboarding_id}
+```
+
+**Authorization:** `Bearer <token>` (admin role)
+
+### Path Parameters
+
+<ParamField path="onboarding_id" type="integer" required>
+  The onboarding dossier ID to re-analyse. The server updates the existing approval request's `agent_analysis`, `proposed_decision`, `proposed_reason`, and `trace_id` in place.
+</ParamField>
+
+### Response
+
+<ResponseField name="approval_id" type="integer">
+  The ID of the approval request that was updated (or created, if no request existed yet).
+</ResponseField>
+
+<ResponseField name="onboarding_id" type="integer">
+  The onboarding dossier ID that was analysed.
+</ResponseField>
+
+<ResponseField name="analysis" type="object">
+  The fresh agent analysis output — checks performed, issues found, and the new proposed decision.
+</ResponseField>
+
+<ResponseField name="latency_ms" type="integer">
+  Time taken to run the analysis, in milliseconds.
+</ResponseField>
+
+### Example
+
+```bash
+# Re-run agent analysis for onboarding dossier 88
+curl -X POST https://your-host/api/approvals/analyze/88 \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "approval_id": 15,
+  "onboarding_id": 88,
+  "analysis": {
+    "proposed_decision": "approve",
+    "proposed_reason": "All required documents are now present and valid.",
+    "confidence": 0.93,
+    "checks": {
+      "siret_check": "pass",
+      "id_document": "present",
+      "rib_document": "present",
+      "address_match": "pass",
+      "professional_certificate": "valid"
+    }
+  },
+  "latency_ms": 1840
+}
+```

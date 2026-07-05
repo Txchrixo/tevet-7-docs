@@ -1,0 +1,104 @@
+---
+title: "Tevet-7 API Errors: HTTP Codes, Formats, and Retry Logic"
+sidebarTitle: "Errors"
+description: "Reference for every HTTP error code returned by the Tevet-7 API, with example payloads, Retry-After guidance, and chat-specific edge cases."
+---
+
+Every error response from the Tevet-7 API is JSON. The body always contains a `detail` key with a human-readable message. For field-level validation failures, `detail` is an array of objects describing which field failed and why. This page lists every error code you can receive, what triggers it, and how to handle it in your client code.
+
+## Error Body Format
+
+Standard errors:
+
+```json
+{ "detail": "invalid email or password" }
+```
+
+Pydantic validation errors (`422`):
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "password"],
+      "msg": "ensure this value has at least 8 characters",
+      "type": "value_error.any_str.min_length"
+    }
+  ]
+}
+```
+
+## Error Code Reference
+
+| Code | Name | Common Causes |
+|---|---|---|
+| `400` | Bad Request | Missing required fields, invalid `connector_type`, malformed request body |
+| `401` | Unauthorized | Missing or expired Bearer token; wrong email or password; invalid refresh token |
+| `403` | Forbidden | Not a member of the requested tenant; no active tenant in JWT; caller is not an admin |
+| `404` | Not Found | Resource does not exist or has been deleted |
+| `409` | Conflict | Email already registered; tenant slug already taken; user is already a member |
+| `422` | Unprocessable Entity | Pydantic validation error — wrong field type, value outside min/max length, etc. |
+| `429` | Too Many Requests | Rate limit exceeded (login or chat); daily token quota exhausted |
+| `500` | Internal Server Error | Unexpected server-side failure |
+| `503` | Service Unavailable | Demo backend unreachable (only on `POST /api/auth/demo-token`) |
+
+## Rate Limit Response (`429`)
+
+When you exceed a rate limit the response includes a `Retry-After` header telling you how many seconds to wait.
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 43
+Content-Type: application/json
+
+{
+  "detail": "Too many attempts. Retry in 43s."
+}
+```
+
+Read the `Retry-After` value and pause your retry loop accordingly — exponential back-off is a good default for non-auth endpoints.
+
+## Example: Unauthorized (`401`)
+
+```json
+{ "detail": "invalid email or password" }
+```
+
+Or when a JWT is missing from a protected endpoint:
+
+```json
+{ "detail": "Not authenticated" }
+```
+
+## Example: Conflict (`409`)
+
+```json
+{ "detail": "email already registered" }
+```
+
+You will also receive `409` when you try to add a user to a tenant they already belong to, or when creating a tenant with a slug that is already in use.
+
+## Chat Endpoint Special Cases
+
+<Note>
+`POST /api/chat` always returns `HTTP 200` — even when the agent refuses to answer. Check the `refused` field in the response body rather than the HTTP status code.
+</Note>
+
+The chat response body contains two boolean flags that require special handling:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `refused` | boolean | `true` when the agent declined to answer (out-of-scope, safety block, etc.) |
+| `not_onboarded` | boolean | `true` when the tenant has not completed onboarding — the agent cannot run yet |
+
+Example refused response (still `HTTP 200`):
+
+```json
+{
+  "answer": "",
+  "refused": true,
+  "not_onboarded": false
+}
+```
+
+When `not_onboarded` is `true`, direct your user to complete the tenant onboarding flow before retrying the chat request.

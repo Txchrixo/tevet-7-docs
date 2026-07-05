@@ -1,0 +1,358 @@
+---
+title: "Tenant Onboarding API — Connect Data and Configure Schema"
+sidebarTitle: "Onboarding API"
+description: "Walk through the six-step onboarding wizard to connect a data source, detect your schema, configure role scoping, and activate the Tevet-7 AI agent."
+---
+
+Before the Tevet-7 agent can answer questions for your workspace, you need to connect it to a data source and configure the schema it will use. The onboarding wizard is a sequence of HTTP endpoints that guide you through this process — from choosing a connector type, to testing the connection, auto-detecting your tables and columns, saving your schema and role configuration, and finally flipping the workspace to active.
+
+All onboarding endpoints require an `Authorization: Bearer <token>` header and that the authenticated user is a member of the workspace. If you attempt to use `/api/chat` before completing onboarding, the response will contain `not_onboarded: true` and `refused: true`.
+
+---
+
+## Wizard Flow
+
+<Steps>
+
+### Start Onboarding
+
+**`POST /api/tenants/{tenant_id}/onboarding/start`**
+
+Initialises (or resets) the onboarding wizard for the workspace. Sets the connector type and clears any previously saved schema, roles, and connection state so a re-onboarding starts from a clean slate.
+
+<ParamField body="connector_type" type="string" required>
+  Data source type: `"postgres"` for a PostgreSQL database, or `"csv"` for a CSV file upload.
+</ParamField>
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/start \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"connector_type": "postgres"}'
+```
+
+**Response**
+```json
+{ "config": { "tenant_id": "fresh-logistics", "connector_type": "postgres", "onboarded": false } }
+```
+
+**Errors:** `400` if `connector_type` is not `"postgres"` or `"csv"`.
+
+---
+
+### Connect to Data Source
+
+**`POST /api/tenants/{tenant_id}/onboarding/connect`**
+
+Tests the connection to your data source and saves the connection credentials on success. This endpoint accepts a **multipart form** (not JSON) so that both a URL string and a file upload can be handled with the same request shape.
+
+The required form fields depend on your `connector_type`:
+
+- **postgres** — provide `connector_type` and `connection_url` (a SQLAlchemy-style PostgreSQL URL).
+- **csv** — provide `connector_type` and `file` (the CSV file as a multipart file upload).
+
+#### Postgres Example
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/connect \
+  -H "Authorization: Bearer <token>" \
+  -F "connector_type=postgres" \
+  -F "connection_url=postgresql+asyncpg://user:password@db.example.com:5432/fresh_db"
+```
+
+#### CSV Example
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/connect \
+  -H "Authorization: Bearer <token>" \
+  -F "connector_type=csv" \
+  -F "file=@/path/to/your/data.csv"
+```
+
+**Response**
+```json
+{ "ok": true, "error": null, "tables_count": 8 }
+```
+
+If the connection fails, `ok` is `false` and `error` contains a human-readable message (e.g. a database connection error or CSV parse error). Fix the issue and retry before proceeding.
+
+**Errors:** `400` if `connector_type` is invalid, `connection_url` is missing for postgres, or `file` is missing for csv.
+
+---
+
+### Detect Schema
+
+**`POST /api/tenants/{tenant_id}/onboarding/detect-schema`**
+
+Introspects the connected data source and auto-generates a draft schema: table names, column names, inferred types, and suggested descriptions. The draft is stashed server-side as your pending `schema_config`.
+
+No request body.
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/detect-schema \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**
+```json
+{
+  "schema": {
+    "tables": [
+      {
+        "name": "orders",
+        "description": "Customer orders",
+        "tenant_scope_column": null,
+        "columns": [
+          { "name": "id",         "type": "integer" },
+          { "name": "amount_eur", "type": "decimal" },
+          { "name": "status",     "type": "varchar" },
+          { "name": "created_at", "type": "timestamp" }
+        ],
+        "joins_to": []
+      }
+    ]
+  }
+}
+```
+
+Review the draft and edit it as needed (e.g. add descriptions, set `tenant_scope_column`, hide sensitive columns) before calling `save-schema`.
+
+**Errors:** `400` if no connection has been established yet.
+
+---
+
+### Save Schema
+
+**`POST /api/tenants/{tenant_id}/onboarding/save-schema`**
+
+Persists your reviewed (and optionally edited) schema as the canonical `schema_config` for this workspace. The schema you save here is exactly what the agent will load at query time.
+
+<ParamField body="schema_config" type="object" required>
+  Your final schema object — the same structure returned by `detect-schema`, with any edits you have applied (descriptions, scope columns, removed columns, etc.).
+</ParamField>
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/save-schema \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema_config": {
+      "tables": [
+        {
+          "name": "orders",
+          "description": "Customer orders placed in our system",
+          "tenant_scope_column": "producer_id",
+          "columns": [
+            { "name": "id",          "type": "integer",   "description": "Unique order ID" },
+            { "name": "producer_id", "type": "integer",   "description": "Owning producer (scope column)" },
+            { "name": "amount_eur",  "type": "decimal",   "description": "Order total in EUR" },
+            { "name": "status",      "type": "varchar",   "description": "Order status" },
+            { "name": "created_at",  "type": "timestamp", "description": "Order creation timestamp" }
+          ],
+          "joins_to": []
+        }
+      ]
+    }
+  }'
+```
+
+**Response**
+```json
+{ "saved": true, "tables_count": 1 }
+```
+
+---
+
+### Save Roles
+
+**`POST /api/tenants/{tenant_id}/onboarding/save-roles`**
+
+Persists the role-to-scope-column mapping that controls row-level security. Each key in `roles_config` is a role name; the value specifies the `scope_column` that restricts what rows a user with that role can see (`null` for unrestricted access).
+
+<ParamField body="roles_config" type="object" required>
+  A mapping of role names to their scope configuration. Example:
+
+  ```json
+  {
+    "producer": { "scope_column": "producer_id" },
+    "admin":    { "scope_column": null }
+  }
+  ```
+
+  A `scope_column` of `null` means no row-level filtering — the agent sees all rows in every table.
+</ParamField>
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/save-roles \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roles_config": {
+      "producer": { "scope_column": "producer_id" },
+      "admin":    { "scope_column": null }
+    }
+  }'
+```
+
+**Response**
+```json
+{ "saved": true, "roles_count": 2 }
+```
+
+---
+
+### Complete Onboarding
+
+**`POST /api/tenants/{tenant_id}/onboarding/complete`**
+
+Flips the workspace to `onboarded: true`, enabling the agent for this tenant. After this call, `/api/chat` and `/api/chat/stream` will start processing queries against your connected data source.
+
+No request body.
+
+```bash
+curl -X POST https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/complete \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**
+```json
+{ "onboarded": true, "tenant_id": "fresh-logistics" }
+```
+
+**Errors:** `400` if the schema or roles have not been saved before calling `complete`.
+
+</Steps>
+
+---
+
+## Check Onboarding Status
+
+At any point during the wizard you can check the current state of the workspace's onboarding.
+
+**`GET /api/tenants/{tenant_id}/onboarding/status`**
+
+Requires an `Authorization: Bearer <token>` header. The authenticated user must be a member of the workspace.
+
+### Response
+
+<ResponseField name="onboarded" type="boolean">
+  `true` if the workspace has completed onboarding and the agent is active.
+</ResponseField>
+
+<ResponseField name="connector_type" type="string | null">
+  The data source type chosen in step 1: `"postgres"`, `"csv"`, or `null` if not started.
+</ResponseField>
+
+<ResponseField name="schema_tables_count" type="integer">
+  Number of tables in the saved schema. `0` if no schema has been saved yet.
+</ResponseField>
+
+<ResponseField name="roles_count" type="integer">
+  Number of roles defined in the saved roles config. `0` if no roles have been saved yet.
+</ResponseField>
+
+<ResponseField name="has_connection" type="boolean">
+  `true` if a successful connection test has been completed.
+</ResponseField>
+
+<ResponseField name="has_csv" type="boolean">
+  `true` if a CSV file has been uploaded (only relevant for `connector_type: "csv"`).
+</ResponseField>
+
+<ResponseField name="has_schema" type="boolean">
+  `true` if a schema has been saved via `save-schema`.
+</ResponseField>
+
+<ResponseField name="has_roles" type="boolean">
+  `true` if roles have been saved via `save-roles`.
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 timestamp of when the onboarding configuration was first created, or `null` if not yet initialised.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string | null">
+  ISO 8601 timestamp of the most recent update to the onboarding configuration, or `null` if not yet initialised.
+</ResponseField>
+
+#### Example
+
+```bash
+curl https://api.tevet7.com/api/tenants/fresh-logistics/onboarding/status \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "onboarded": false,
+  "connector_type": "postgres",
+  "schema_tables_count": 5,
+  "roles_count": 2,
+  "has_connection": true,
+  "has_csv": false,
+  "has_schema": true,
+  "has_roles": true,
+  "created_at": "2024-03-15T10:22:00Z",
+  "updated_at": "2024-03-15T11:05:42Z"
+}
+```
+
+---
+
+## Example Questions
+
+After onboarding is complete, Tevet-7 generates up to 5 natural-language example questions derived from your schema. These are displayed in the chat sidebar to help users discover what they can ask.
+
+**`GET /api/tenants/{tenant_id}/example-questions`**
+
+Requires an `Authorization: Bearer <token>` header. The authenticated user must be a member of the workspace.
+
+### Response
+
+<ResponseField name="questions" type="array">
+  Up to 5 generated example questions. Each item has:
+
+  <Expandable title="questions item fields">
+    <ResponseField name="questions[].id" type="string">
+      Stable identifier for the question (e.g. `"q1"`).
+    </ResponseField>
+    <ResponseField name="questions[].label" type="string">
+      The example question text to display in the UI (e.g. `"What were my top products last month?"`).
+    </ResponseField>
+  </Expandable>
+
+  If the workspace is not yet onboarded or has no schema config, the endpoint falls back to 3 generic questions.
+</ResponseField>
+
+#### Example
+
+```bash
+curl https://api.tevet7.com/api/tenants/fresh-logistics/example-questions \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "questions": [
+    { "id": "q1", "label": "What were my top 5 products by revenue last month?" },
+    { "id": "q2", "label": "How many orders are pending pickup this week?" },
+    { "id": "q3", "label": "Which products are at risk of going out of stock?" },
+    { "id": "q4", "label": "Show me total revenue by shop for the last 30 days." },
+    { "id": "q5", "label": "What is my current stock level for product ID 12?" }
+  ]
+}
+```
+
+---
+
+## Error Reference
+
+| Status | Endpoint              | Condition |
+|--------|-----------------------|-----------|
+| `400`  | `start`               | `connector_type` is not `"postgres"` or `"csv"`. |
+| `400`  | `connect`             | `connection_url` missing for postgres, or `file` missing for csv. |
+| `400`  | `detect-schema`       | No connection has been established yet. |
+| `400`  | `complete`            | Schema or roles have not been saved before calling `complete`. |
+| `401`  | All endpoints         | Missing or invalid `Authorization` header. |
+| `403`  | All endpoints         | Authenticated user is not a member of the workspace. |
+| `404`  | All endpoints         | Workspace does not exist. |

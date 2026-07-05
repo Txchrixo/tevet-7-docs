@@ -1,0 +1,125 @@
+---
+title: "POST /api/documents — Upload a Document to Knowledge Base"
+sidebarTitle: "Upload Document"
+description: "Upload a PDF or plain-text document to your tenant's knowledge base so the AI agent can retrieve it during RAG-powered conversations."
+---
+
+Use this endpoint to populate your tenant's knowledge base with documents the AI agent will reference during retrieval-augmented generation (RAG). You can upload a PDF file or supply raw text directly. Once ingested, the document is automatically split into indexed chunks and made available to the agent immediately.
+
+## Endpoint
+
+```
+POST /api/documents
+```
+
+**Content-Type:** `multipart/form-data`
+
+**Authorization:** `Bearer <token>`
+
+---
+
+## Request Fields
+
+<ParamField body="title" type="string" required>
+  A human-readable title for the document (e.g. `"Terms of Service"` or `"FAQ"`). This label appears in the knowledge base listing and helps you identify the document later.
+</ParamField>
+
+<ParamField body="source_type" type="string" required>
+  The format of the document. Must be `"pdf"` or `"text"`.
+
+  - `"pdf"` — upload a PDF file via the `file` field.
+  - `"text"` — supply raw text content via the `content` field.
+</ParamField>
+
+<ParamField body="file" type="file">
+  The PDF file to upload. **Required when `source_type` is `"pdf"`**. The server extracts text from the PDF and indexes it as chunks. Ignored when `source_type` is `"text"`.
+</ParamField>
+
+<ParamField body="content" type="string">
+  The plain-text content to index. **Required when `source_type` is `"text"`**. Must be a non-empty string. Ignored when `source_type` is `"pdf"`.
+</ParamField>
+
+---
+
+## Response
+
+A successful upload returns `200 OK` with the following fields:
+
+<ResponseField name="document_id" type="integer">
+  The unique ID assigned to the new document. Use this ID to retrieve or delete the document later.
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  The title you provided.
+</ResponseField>
+
+<ResponseField name="chunks_count" type="integer">
+  The number of text chunks the document was split into and indexed. A higher chunk count means the document was longer or more varied in content.
+</ResponseField>
+
+<ResponseField name="source_type" type="string">
+  The source format you specified — either `"pdf"` or `"text"`.
+</ResponseField>
+
+<ResponseField name="producer_id" type="integer | null">
+  The producer this document is scoped to, or `null` if it is a tenant-wide document.
+</ResponseField>
+
+<ResponseField name="tenant_id" type="string">
+  The tenant this document belongs to, derived from your Bearer token.
+</ResponseField>
+
+---
+
+## Error Responses
+
+| Status | Reason |
+|--------|--------|
+| `400`  | `source_type=pdf` was set but no `file` was provided. |
+| `400`  | The uploaded PDF is empty. |
+| `400`  | PDF text extraction yielded no text (scanned PDF with no text layer). |
+| `400`  | `source_type=text` was set but `content` is missing or blank. |
+| `401`  | Missing or invalid Bearer token. |
+
+<Note>
+  Scanned PDFs — those composed entirely of images rather than selectable text — cannot be indexed and will return a `400` error with the message `"PDF text extraction yielded no text (scanned PDF?)"`. Make sure your PDF has an embedded text layer. If you only have a scanned copy, extract the text yourself and upload it via `source_type=text` instead.
+</Note>
+
+---
+
+## Examples
+
+### Upload a PDF document
+
+```bash
+# Upload a PDF
+curl -X POST https://your-host/api/documents \
+  -H "Authorization: Bearer <token>" \
+  -F "title=Terms of Service" \
+  -F "source_type=pdf" \
+  -F "file=@terms.pdf"
+```
+
+### Upload plain text
+
+```bash
+# Upload text
+curl -X POST https://your-host/api/documents \
+  -H "Authorization: Bearer <token>" \
+  -F "title=FAQ" \
+  -F "source_type=text" \
+  -F "content=What are your opening hours?..."
+```
+
+### Example response
+
+```json
+{
+  "document_id": 42,
+  "title": "Terms of Service",
+  "chunks_count": 18,
+  "source_type": "pdf",
+  "producer_id": null,
+  "tenant_id": "acme"
+}
+```

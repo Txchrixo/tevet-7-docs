@@ -1,0 +1,252 @@
+---
+title: "Connect Your Data Source with the Onboarding Wizard"
+sidebarTitle: "Onboarding"
+description: "Walk through Tevet-7's six-step onboarding wizard to connect a data source, detect your schema, configure roles, and activate the AI agent."
+---
+
+Before the Tevet-7 AI agent can answer questions about your data, you need to connect a data source and teach it your schema. The onboarding wizard walks you through this in six steps: start, connect, detect schema, save schema, save roles, and complete. You can check your progress at any time and retrieve suggested questions once onboarding is finished.
+
+<Warning>
+  Chat requests to `/api/chat` return an error until onboarding is complete (`onboarded: true`). Finish all six steps before sending your first chat message.
+</Warning>
+
+## The six onboarding steps
+
+<Steps>
+  <Step title="Start the wizard">
+    Initialize (or reset) onboarding for your workspace by declaring which connector type you'll use. Calling this endpoint on a previously onboarded workspace resets all prior configuration so you can start fresh.
+
+    <ParamField body="connector_type" type="string" required>
+      `"postgres"` to connect a PostgreSQL database, or `"csv"` to upload a CSV file.
+    </ParamField>
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/start \
+      -H "Authorization: Bearer <your-token>" \
+      -H "Content-Type: application/json" \
+      -d '{"connector_type": "postgres"}'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "config": {
+        "tenant_id": "acme-corp",
+        "connector_type": "postgres",
+        "onboarded": false
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Connect your data source">
+    Test the connection and save the connection details. The request format depends on your connector type.
+
+    **PostgreSQL** — pass the connection URL as a form field:
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/connect \
+      -H "Authorization: Bearer <your-token>" \
+      -F "connector_type=postgres" \
+      -F "connection_url=postgresql://user:pass@db-host:5432/mydb"
+    ```
+
+    **CSV** — upload your file as multipart form data:
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/connect \
+      -H "Authorization: Bearer <your-token>" \
+      -F "connector_type=csv" \
+      -F "file=@data.csv"
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "ok": true,
+      "error": null,
+      "tables_count": 4
+    }
+    ```
+
+    If `ok` is `false`, the `error` field contains a human-readable description of what went wrong (bad credentials, unreachable host, malformed CSV, etc.). Fix the issue and retry this step before continuing.
+  </Step>
+
+  <Step title="Detect your schema">
+    Ask Tevet-7 to inspect the connected data source and produce a draft schema. The draft lists every table, its columns, and the inferred data types. It is also saved automatically as a pending schema so you have something to start editing from.
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/detect-schema \
+      -H "Authorization: Bearer <your-token>"
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "schema": {
+        "tables": [
+          {
+            "name": "orders",
+            "columns": [
+              { "name": "id",          "type": "integer" },
+              { "name": "producer_id", "type": "integer" },
+              { "name": "amount",      "type": "numeric" },
+              { "name": "created_at",  "type": "timestamp" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    Review the draft carefully. You can rename columns, remove sensitive tables, or adjust inferred types before saving.
+  </Step>
+
+  <Step title="Save your schema">
+    Persist the (optionally edited) schema. This is the configuration the AI agent reads every time it builds a query — accuracy here directly affects the quality of answers.
+
+    <ParamField body="schema_config" type="object" required>
+      The schema object returned by detect-schema, optionally edited. Must contain a `tables` array where each entry has `name` and `columns`.
+    </ParamField>
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/save-schema \
+      -H "Authorization: Bearer <your-token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "schema_config": {
+          "tables": [
+            {
+              "name": "orders",
+              "columns": [
+                { "name": "id",          "type": "integer" },
+                { "name": "producer_id", "type": "integer" },
+                { "name": "amount",      "type": "numeric" },
+                { "name": "created_at",  "type": "timestamp" }
+              ]
+            }
+          ]
+        }
+      }'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "saved": true,
+      "tables_count": 1
+    }
+    ```
+  </Step>
+
+  <Step title="Save your roles configuration">
+    Tell the agent which role gets row-level filtering and which column to filter on. For `producer` members, every query the agent generates will automatically include a `WHERE <scope_column> = <producer_id>` clause. `admin` members always see all rows.
+
+    <ParamField body="roles_config" type="object" required>
+      A mapping of role name to its scope settings. Set `scope_column` to the name of the column that holds the producer identifier, or `null` to disable row-level filtering for that role.
+    </ParamField>
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/save-roles \
+      -H "Authorization: Bearer <your-token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "roles_config": {
+          "producer": { "scope_column": "producer_id" },
+          "admin":    { "scope_column": null }
+        }
+      }'
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "saved": true,
+      "roles_count": 2
+    }
+    ```
+  </Step>
+
+  <Step title="Complete onboarding">
+    Mark the workspace as fully onboarded. This flips `onboarded: true` and unlocks the `/api/chat` endpoint for your workspace. The server verifies that a schema and roles configuration have both been saved — if either is missing, it returns `HTTP 400 Bad Request`. Complete steps 4 and 5 before calling this endpoint.
+
+    ```bash
+    curl -s -X POST https://your-host/api/tenants/acme-corp/onboarding/complete \
+      -H "Authorization: Bearer <your-token>"
+    ```
+
+    **Response**
+
+    ```json
+    {
+      "onboarded": true,
+      "tenant_id": "acme-corp"
+    }
+    ```
+  </Step>
+</Steps>
+
+## Check onboarding status
+
+You can inspect the current onboarding state at any point — useful for resuming an interrupted wizard or debugging from a script.
+
+```bash
+curl -s https://your-host/api/tenants/acme-corp/onboarding/status \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "onboarded": false,
+  "connector_type": "postgres",
+  "schema_tables_count": 1,
+  "roles_count": 2,
+  "has_connection": true,
+  "has_csv": false,
+  "has_schema": true,
+  "has_roles": true,
+  "created_at": "2024-11-01T10:00:00Z",
+  "updated_at": "2024-11-01T10:05:00Z"
+}
+```
+
+## Get suggested questions
+
+Once onboarding is complete, Tevet-7 generates up to five natural-language questions based on your schema. These give users a quick starting point for exploring their data.
+
+```bash
+curl -s https://your-host/api/tenants/acme-corp/example-questions \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response**
+
+```json
+{
+  "questions": [
+    { "id": "q1", "label": "How many orders were placed last month?" },
+    { "id": "q2", "label": "What is the total revenue by producer?" },
+    { "id": "q3", "label": "Which producers have the highest order count?" },
+    { "id": "q4", "label": "Show me orders created in the last 7 days." },
+    { "id": "q5", "label": "What is the average order amount?" }
+  ]
+}
+```
+
+<Note>
+  If your workspace is not yet onboarded or the schema has no tables, this endpoint returns three generic placeholder questions instead of schema-specific ones.
+</Note>
+
+## Supported connector types
+
+| Connector | Value | What you provide |
+|---|---|---|
+| PostgreSQL | `"postgres"` | A full SQLAlchemy connection URL, e.g. `postgresql://user:pass@host:5432/dbname` |
+| CSV file | `"csv"` | A CSV file uploaded via multipart form (`file` field) |

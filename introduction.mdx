@@ -1,0 +1,61 @@
+---
+title: "Tevet-7: Natural Language Queries for Your Database"
+sidebarTitle: "Introduction"
+description: "Tevet-7 is a multi-tenant AI agent platform that lets your team query business databases in plain language, with row-level security and LLM orchestration."
+---
+
+Tevet-7 turns your business database into a conversational analyst. Instead of writing SQL or waiting for a data team to build a report, you ask a question in plain language — "What are my top 5 products by revenue this month?" — and Tevet-7's agent picks the right tool, runs the query safely, and returns an answer with an optional chart. Every query is secured at the AST level before it ever reaches your database, so the AI can never read data that belongs to another user.
+
+## What Tevet-7 does for your business
+
+Most businesses have structured data they can't easily interrogate. Analysts are expensive, SQL is a barrier, and BI dashboards go stale. Tevet-7 removes that bottleneck by sitting between your team and your data — translating natural-language questions into safe, scoped SQL queries, document searches, or ML forecasts, then presenting results in plain prose and charts your team can act on.
+
+The platform is built for **multi-tenant deployments**: each customer, department, or business unit lives in its own isolated workspace (a _tenant_) with its own database connector, schema definition, role configuration, and conversation history. One Tevet-7 instance can serve many tenants simultaneously with complete data isolation between them.
+
+## Key capabilities
+
+| Capability | What it means for you |
+|---|---|
+| **Natural language queries** | Ask questions in plain English or French — no SQL required |
+| **Row-level security** | Every query is rewritten via sqlglot AST injection before execution; the LLM can never bypass it |
+| **LLM orchestration** | A model router (DeepSeek → OpenRouter → Gemini → Groq) picks the best available LLM and falls back automatically |
+| **Streaming responses** | `POST /api/chat/stream` delivers SSE chunks so answers appear word-by-word |
+| **RAG document search** | BM25-ranked full-text search over your documents with cited sources |
+| **ML forecasting** | A RandomForest model predicts stock shortages (F1 = 0.83, Recall = 0.96) so you catch problems before they happen |
+| **Multi-tenant workspaces** | Isolated tenants, each with their own connector, schema, roles, and members |
+| **Full observability** | Every query produces a trace with SQL, token usage, latency, tool calls, and cost |
+
+## Who Tevet-7 is for
+
+Tevet-7 is designed for **businesses with structured operational data** — sales records, inventory, orders, producer metrics — who want their team to query that data through conversation rather than code. It fits particularly well where:
+
+- Different users should only see their own rows (producers, franchisees, regional managers)
+- The team changes frequently or doesn't have SQL skills
+- You need a record of what was asked, what SQL ran, and what it cost
+
+Technical administrators set up connectors and define role scoping once during onboarding. After that, end users interact entirely through the chat interface.
+
+## Explore the platform
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Sign up, create a workspace, connect your data, and ask your first question in five minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand tenants, connectors, the AI agent, security layers, and observability.
+  </Card>
+  <Card title="Chat API" icon="message" href="/guides/chat">
+    Deep-dive into the chat endpoint — streaming, conversation history, and response fields.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Full reference for every endpoint: auth, tenants, onboarding, chat, traces, and more.
+  </Card>
+</CardGroup>
+
+## Try the live demo
+
+The **Drive Producteur** tenant is a pre-loaded demo workspace for a French short-supply-chain marketplace. It includes real-looking sales, stock, and revenue data for several producers. You can explore it instantly — no setup required — by calling `POST /api/auth/demo-token` to receive a scoped JWT, then sending questions to `POST /api/chat`. The demo resets automatically every 24 hours, so feel free to experiment.
+
+<Note>
+  The demo token logs you in as **marie@tevet7.dev**, a producer scoped to Ferme du Vallon (producer #42). Her queries will only ever return her own data, no matter what you ask — that's row-level security in action.
+</Note>

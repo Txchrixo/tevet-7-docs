@@ -1,0 +1,179 @@
+---
+title: "POST /api/chat/stream — Stream AI Responses via SSE"
+sidebarTitle: "Stream Chat"
+description: "Stream the Tevet-7 agent's response token-by-token using Server-Sent Events, with real-time step progress and a final structured envelope on completion."
+---
+
+The `/api/chat/stream` endpoint is the streaming counterpart to [`POST /api/chat`](/api/chat/send). Instead of waiting for the full agent run to complete, you receive a live `text/event-stream` feed: step-progress events as the agent works, incremental answer chunks as the text is produced, and a final `done` event carrying the complete response envelope. This is the recommended endpoint for chat interfaces where you want users to see the answer appear progressively.
+
+The request body is identical to `/api/chat`. Authentication, rate limiting (120 req/min per tenant), and all security scoping rules are the same.
+
+## Request
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <token>` — a valid Tevet-7 JWT encoding your `tenant_id`, `role`, and `producer_id`.
+</ParamField>
+
+<ParamField header="Accept" type="string">
+  Set to `text/event-stream` to signal SSE intent to proxies and CDNs. Not strictly required by the server but strongly recommended.
+</ParamField>
+
+**`POST /api/chat/stream`**
+
+The request body is the same as [`POST /api/chat`](/api/chat/send): `message` (required), plus optional `conversation_id` and `history`.
+
+---
+
+## Response
+
+The server responds with:
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+Each event is a `data:` line followed by two newlines, containing a JSON object. There is no `event:` field — differentiate events by the `type` property inside the JSON payload.
+
+### Event Types
+
+<ResponseField name="type: step" type="object">
+  Emitted as the agent advances through its reasoning pipeline. Use these to show a progress indicator in your UI.
+
+  <Expandable title="step event fields">
+    <ResponseField name="type" type="string">
+      Always `"step"`.
+    </ResponseField>
+    <ResponseField name="title" type="string">
+      Human-readable label for the current step (e.g. `"Connecting to data…"`, `"Analysing question…"`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="type: chunk" type="object">
+  An incremental fragment of the agent's answer text. Concatenate all `chunk` payloads in order to reconstruct the full answer.
+
+  <Expandable title="chunk event fields">
+    <ResponseField name="type" type="string">
+      Always `"chunk"`.
+    </ResponseField>
+    <ResponseField name="content" type="string">
+      A word or partial phrase of the answer.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="type: done" type="object">
+  The final event. Contains the complete response envelope — the same structure as a non-streaming [`POST /api/chat`](/api/chat/send) response, including `answer`, `sql`, `chart`, `tool_calls`, `steps`, `trace_id`, `conversation_id`, and all other fields.
+
+  <Expandable title="done event fields">
+    <ResponseField name="type" type="string">
+      Always `"done"`.
+    </ResponseField>
+    <ResponseField name="response" type="object">
+      Full response envelope. See [POST /api/chat → Response Fields](/api/chat/send#response-fields) for the complete schema.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="type: error" type="object">
+  Emitted when an unrecoverable error occurs mid-stream. After this event the stream closes.
+
+  <Expandable title="error event fields">
+    <ResponseField name="type" type="string">
+      Always `"error"`.
+    </ResponseField>
+    <ResponseField name="message" type="string">
+      Human-readable error description.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Examples
+
+### TypeScript (Fetch API)
+
+```typescript
+const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+
+const res = await fetch('/api/chat/stream', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    'Accept': 'text/event-stream',
+  },
+  body: JSON.stringify({ message: 'Top 5 products?' }),
+});
+
+const reader = res.body!.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  decoder.decode(value).split('\n').forEach(line => {
+    if (!line.startsWith('data: ')) return;
+
+    const evt = JSON.parse(line.slice(6));
+
+    if (evt.type === 'step') {
+      console.log('[step]', evt.title);
+    }
+    if (evt.type === 'chunk') {
+      process.stdout.write(evt.content);
+    }
+    if (evt.type === 'done') {
+      console.log('\n[done] trace_id:', evt.response.trace_id);
+      console.log('       sql:', evt.response.sql);
+    }
+    if (evt.type === 'error') {
+      console.error('[error]', evt.message);
+    }
+  });
+}
+```
+
+### curl
+
+```bash
+curl -N -X POST https://api.tevet7.com/api/chat/stream \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"message": "Top 5 products by revenue this week?"}'
+```
+
+### Example Stream Output
+
+```
+data: {"type":"step","title":"Connecting to data…"}
+
+data: {"type":"step","title":"Analysing question…"}
+
+data: {"type":"chunk","content":"Your "}
+
+data: {"type":"chunk","content":"top 5 "}
+
+data: {"type":"chunk","content":"products "}
+
+data: {"type":"chunk","content":"this week are: "}
+
+data: {"type":"chunk","content":"Tomates anciennes (€310)…"}
+
+data: {"type":"done","response":{"answer":"Your top 5 products this week are…","sql":"SELECT …","chart":{…},"refused":false,"trace_id":"trc_01hx9k2p3qvz4n8c7b5d6e0fa","conversation_id":"conv_01hx…"}}
+```
+
+---
+
+## Notes
+
+- The `-N` flag in curl disables output buffering, which is required for SSE to print in real time.
+- Proxies and load balancers must not buffer the response. The `X-Accel-Buffering: no` header disables Nginx buffering automatically.
+- If the tenant is not onboarded, the stream emits a single `done` event with `response.not_onboarded: true` and `response.refused: true`.
+- The `done` event's `response` object is canonical — use it as the source of truth for `trace_id`, `conversation_id`, and `chart`. Do not reconstruct the answer from `chunk` events for persistence purposes.

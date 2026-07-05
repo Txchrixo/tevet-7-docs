@@ -1,72 +1,121 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "Tevet-7",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#2563EB",
+    "light": "#EFF6FF",
+    "dark": "#1E3A8A"
   },
   "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Txchrixo/tevet-7"
+    }
+  },
   "navigation": {
-    "pages": [
+    "tabs": [
       {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "guides/authentication",
+              "guides/tenants",
+              "guides/onboarding"
+            ]
+          },
+          {
+            "group": "AI Agent",
+            "pages": [
+              "guides/chat",
+              "guides/streaming",
+              "guides/rag-documents",
+              "guides/forecasting",
+              "guides/guardrails"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "guides/approvals",
+              "guides/observability",
+              "guides/export"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "guides/llm-providers",
+              "guides/connectors",
+              "guides/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/errors"
+            ]
+          },
+          {
+            "group": "Auth",
+            "pages": [
+              "api/auth/signup",
+              "api/auth/login",
+              "api/auth/me",
+              "api/auth/refresh",
+              "api/auth/demo-token"
+            ]
+          },
+          {
+            "group": "Chat",
+            "pages": [
+              "api/chat/send",
+              "api/chat/stream",
+              "api/chat/schema"
+            ]
+          },
+          {
+            "group": "Tenants",
+            "pages": [
+              "api/tenants/create",
+              "api/tenants/list",
+              "api/tenants/onboarding"
+            ]
+          },
+          {
+            "group": "Documents",
+            "pages": [
+              "api/documents/upload",
+              "api/documents/list",
+              "api/documents/delete"
+            ]
+          },
+          {
+            "group": "Approvals",
+            "pages": [
+              "api/approvals/list",
+              "api/approvals/decide"
+            ]
+          }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
     ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
   }
 }

@@ -1,0 +1,62 @@
+---
+title: "POST /api/auth/refresh — Refresh Your Access Token"
+sidebarTitle: "Refresh"
+description: "Exchange a long-lived refresh token for a fresh 2-hour access token, keeping users authenticated without prompting them to enter their password again."
+---
+
+Access tokens issued by Tevet-7 expire after 2 hours. Instead of sending the user back to the login screen when a token expires, you can exchange the refresh token — received during login — for a new access token silently in the background. This endpoint performs that exchange and issues a fresh access token with the same claims as the original.
+
+## Request
+
+```
+POST /api/auth/refresh
+Content-Type: application/json
+```
+
+<ParamField body="refresh_token" type="string" required>
+  The refresh token returned by `POST /api/auth/login` or `POST /api/auth/demo-token`. Refresh tokens are long-lived JWTs with a `type: refresh` claim.
+</ParamField>
+
+## Response
+
+<ResponseField name="access_token" type="string">
+  A new JWT access token valid for 2 hours. It carries the same `tenant_id`, `role`, `producer_id`, and other claims as your previous access token.
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Always `"bearer"`. Use this value as the prefix when constructing your `Authorization` header.
+</ResponseField>
+
+## Errors
+
+| Code | Cause |
+|---|---|
+| `401 Unauthorized` | The refresh token is missing, malformed, expired, or has the wrong `type` claim. |
+
+## Example
+
+```bash
+curl -s -X POST https://your-tevet7-host/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+Use the new `access_token` in all subsequent requests:
+
+```bash
+curl -s https://your-tevet7-host/api/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<Tip>
+  Store the `refresh_token` in secure, persistent storage (for example, an `httpOnly` cookie or your platform's secure credential store). Use it to silently renew the access token before it expires — typically by checking expiry client-side and refreshing 5–10 minutes before the deadline. This way users stay logged in across sessions without ever re-entering their password.
+</Tip>

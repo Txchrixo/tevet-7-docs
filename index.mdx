@@ -1,20 +1,83 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Tevet-7: AI Agent for Natural Language Database Queries"
+sidebarTitle: "Home"
+description: "Query your database in plain language with Tevet-7 — the multi-tenant AI agent with row-level security, RAG, ML forecasting, and streaming."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Tevet-7 is a configurable AI agent platform that turns natural-language questions into secure, real-time database insights. Connect your PostgreSQL database or CSV files, ask questions in plain language, and get answers backed by your own data — with row-level security enforced at every query.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Connect your data source and send your first natural language query in under 5 minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand tenants, connectors, the AI agent, and how security is enforced.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Full reference for every endpoint: chat, auth, tenants, documents, and approvals.
+  </Card>
+  <Card title="Chat Guide" icon="message" href="/guides/chat">
+    Learn how to send queries, read structured responses, and use conversation history.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What Tevet-7 Does
+
+You connect your business database to Tevet-7 through a guided onboarding wizard. Once connected, your team can ask questions in plain language — the AI agent translates them into SQL, searches your document knowledge base, or runs ML forecasting models to produce an answer.
+
+Every query is protected by three independent security layers: JWT-extracted identity (your credentials never travel in the request body), read-only database connections, and AST-level row-level scoping that injects the correct `WHERE` clause before any query reaches the database.
+
+<CardGroup cols={3}>
+  <Card title="Natural Language Queries" icon="message-dots">
+    Ask questions in French or English. The agent picks the right tool — SQL, RAG, or ML — automatically.
+  </Card>
+  <Card title="Row-Level Security" icon="shield-check">
+    Every query is rewritten by sqlglot AST rewriting to scope results to the authenticated user's data. The LLM cannot bypass this.
+  </Card>
+  <Card title="Streaming Responses" icon="bolt">
+    Get answers word-by-word via Server-Sent Events for a responsive chat experience.
+  </Card>
+  <Card title="Document RAG" icon="file-magnifying-glass">
+    Upload PDFs or text documents. The agent cites sources when it draws from your knowledge base.
+  </Card>
+  <Card title="ML Forecasting" icon="chart-line">
+    Predict stock shortages and other business events using built-in RandomForest models (F1 = 0.83).
+  </Card>
+  <Card title="Multi-Tenant" icon="building">
+    Each tenant's data is fully isolated. Manage members, roles, and connectors per workspace.
+  </Card>
+  <Card title="Guardrails" icon="lock">
+    Deterministic prompt-injection detection, PII redaction, and content moderation run before every LLM call — zero tokens, under 1 ms.
+  </Card>
+  <Card title="Conversation Persistence" icon="clock-rotate-left">
+    Every conversation is stored and replayed on reload. Refer back to earlier results or continue a thread across sessions.
+  </Card>
+  <Card title="Multi-LLM Fallback" icon="arrows-rotate">
+    A circuit-breaking model router tries providers in priority order (DeepSeek, OpenRouter, Gemini, Groq) and falls back automatically on failure.
+  </Card>
+</CardGroup>
+
+## Get Started in 3 Steps
+
+<Steps>
+  <Step title="Create your account">
+    Sign up via `POST /api/auth/signup` and receive a JWT. [See the Authentication guide →](/guides/authentication)
+  </Step>
+  <Step title="Create a workspace and connect your data">
+    Create a tenant, run the onboarding wizard to connect PostgreSQL or upload a CSV, and let Tevet-7 detect your schema automatically. [See the Onboarding guide →](/guides/onboarding)
+  </Step>
+  <Step title="Start asking questions">
+    Send a `POST /api/chat` request with your question. Receive a structured answer with the SQL used, data visualisation spec, and cited sources. [See the Chat guide →](/guides/chat)
+  </Step>
+</Steps>
+
+## Try the Live Demo
+
+Tevet-7 ships with a pre-configured demo tenant (Drive Producteur) you can explore without creating an account.
+
+```bash
+curl -X POST https://your-tevet7-host/api/auth/demo-token
+# Returns a JWT for the demo producer account
+```
+
+Use the returned token as `Authorization: Bearer <token>` on any `/api/chat` call to query the Drive Producteur dataset.
